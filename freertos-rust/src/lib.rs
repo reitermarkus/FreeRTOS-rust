@@ -94,7 +94,7 @@ pub mod patterns;
 
 // Internal stuff that is only public for first Proof of Concept
 pub use crate::base::*;
-pub use crate::shim::*;
+use crate::shim::*;
 // ----------
 
 #[cfg(feature = "allocator")]

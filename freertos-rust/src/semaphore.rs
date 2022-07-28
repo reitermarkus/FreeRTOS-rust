@@ -15,7 +15,7 @@ impl Semaphore {
     pub fn new_binary() -> Result<Semaphore, FreeRtosError> {
         unsafe {
             let s = freertos_rs_create_binary_semaphore();
-            if s == 0 as *const _ {
+            if s.is_null() {
                 return Err(FreeRtosError::OutOfMemory);
             }
             Ok(Semaphore { semaphore: s })
@@ -26,7 +26,7 @@ impl Semaphore {
     pub fn new_counting(max: u32, initial: u32) -> Result<Semaphore, FreeRtosError> {
         unsafe {
             let s = freertos_rs_create_counting_semaphore(max, initial);
-            if s == 0 as *const _ {
+            if s.is_null() {
                 return Err(FreeRtosError::OutOfMemory);
             }
             Ok(Semaphore { semaphore: s })

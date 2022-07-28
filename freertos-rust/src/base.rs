@@ -13,16 +13,9 @@ pub enum FreeRtosError {
     ProcessorHasShutDown,
 }
 
-unsafe impl Send for CVoid {}
+pub type CVoid = cty::c_void;
 
-#[repr(u32)]
-pub enum CVoid {
-    _Variant1,
-    _Variant2,
-}
-
-pub type FreeRtosVoidPtr = *const CVoid;
-pub type FreeRtosMutVoidPtr = *mut CVoid;
+pub type FreeRtosVoidPtr = *mut CVoid;
 pub type FreeRtosCharPtr = *const u8;
 pub type FreeRtosChar = u8;
 
@@ -31,12 +24,11 @@ pub type FreeRtosUBaseType = u32;
 pub type FreeRtosTickType = u32;
 pub type FreeRtosBaseTypeMutPtr = *mut FreeRtosBaseType;
 
-pub type FreeRtosTaskHandle = *const CVoid;
-pub type FreeRtosMutTaskHandle = *mut CVoid;
-pub type FreeRtosQueueHandle = *const CVoid;
-pub type FreeRtosSemaphoreHandle = *const CVoid;
+pub type FreeRtosTaskHandle = *mut CVoid;
+pub type FreeRtosQueueHandle = *mut CVoid;
+pub type FreeRtosSemaphoreHandle = *mut CVoid;
 pub type FreeRtosTaskFunction = *const CVoid;
-pub type FreeRtosTimerHandle = *const CVoid;
+pub type FreeRtosTimerHandle = *mut CVoid;
 pub type FreeRtosTimerCallback = *const CVoid;
 #[allow(dead_code)]
 pub type FreeRtosStackType = *const CVoid;
@@ -58,7 +50,7 @@ pub struct FreeRtosTaskStatusFfi {
     pub stack_high_water_mark: FreeRtosUnsignedShort,
 }
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, PartialEq)]
 #[repr(u8)]
 pub enum FreeRtosTaskState {
     /// A task is querying the state of itself, so must be running.
@@ -71,4 +63,19 @@ pub enum FreeRtosTaskState {
     Suspended = 3,
     /// The task being queried has been deleted, but its TCB has not yet been freed.
     Deleted = 4,
+    /// Task state is invalid.
+    Invalid = 5,
+}
+
+impl From<u32> for FreeRtosTaskState {
+    fn from(s: u32) -> Self {
+        match s {
+            0 => Self::Running,
+            1 => Self::Ready,
+            2 => Self::Blocked,
+            3 => Self::Suspended,
+            4 => Self::Deleted,
+            _ => Self::Invalid,
+        }
+    }
 }

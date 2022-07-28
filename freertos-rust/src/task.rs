@@ -130,31 +130,30 @@ impl Task {
         let f = Box::new(f);
         let param_ptr = &*f as *const _ as *mut _;
 
-        let (success, task_handle) = {
+        let task_handle = {
             let name = name.as_bytes();
             let name_len = name.len();
-            let mut task_handle = mem::zeroed::<CVoid>();
+            let mut task_handle = mem::MaybeUninit::<FreeRtosTaskHandle>::uninit();
 
             let ret = freertos_rs_spawn_task(
-                thread_start,
+                Some(thread_start),
                 param_ptr,
                 name.as_ptr(),
                 name_len as u8,
                 stack_size,
                 priority.to_freertos(),
-                &mut task_handle,
+                task_handle.as_mut_ptr(),
             );
 
-            (ret == 0, task_handle)
+            if ret != 0 {
+                return Err(FreeRtosError::OutOfMemory)
+            }
+
+            mem::forget(f);
+            task_handle.assume_init()
         };
 
-        if success {
-            mem::forget(f);
-        } else {
-            return Err(FreeRtosError::OutOfMemory);
-        }
-
-        extern "C" fn thread_start(main: *mut CVoid) -> *mut CVoid {
+        unsafe extern "C" fn thread_start(main: *mut CVoid) {
             unsafe {
                 {
                     let b = Box::from_raw(main as *mut Box<dyn FnOnce(Task)>);
@@ -163,14 +162,12 @@ impl Task {
                     });
                 }
 
-                freertos_rs_delete_task(0 as *const _);
+                freertos_rs_delete_task(ptr::null_mut());
             }
-
-            0 as *mut _
         }
 
         Ok(Task {
-            task_handle: task_handle as usize as *const _,
+            task_handle: task_handle,
         })
     }
 
@@ -206,11 +203,11 @@ impl Task {
     pub fn current() -> Result<Task, FreeRtosError> {
         unsafe {
             let t = freertos_rs_get_current_task();
-            if t != 0 as *const _ {
-                Ok(Task { task_handle: t })
-            } else {
-                Err(FreeRtosError::TaskNotFound)
+            if t.is_null() {
+                return Err(FreeRtosError::TaskNotFound)
             }
+
+            Ok(Task { task_handle: t })
         }
     }
 
@@ -292,7 +289,7 @@ impl CurrentTask {
 
     pub fn suspend() {
         unsafe {
-            freertos_rs_suspend_task(0 as FreeRtosTaskHandle)
+            freertos_rs_vTaskSuspend(0 as FreeRtosTaskHandle)
         }
     }
 
@@ -386,9 +383,8 @@ impl FreeRtosUtils {
         }
     }
     pub fn start_scheduler() -> ! {
-        unsafe {
-            freertos_rs_vTaskStartScheduler();
-        }
+        unsafe { freertos_rs_vTaskStartScheduler() };
+        unreachable!()
     }
 
     pub fn scheduler_state() -> FreeRtosSchedulerState {
@@ -432,16 +428,16 @@ impl FreeRtosUtils {
             .into_iter()
             .map(|t| FreeRtosTaskStatus {
                 task: Task {
-                    task_handle: t.handle,
+                    task_handle: t.xHandle,
                 },
-                name: unsafe { str_from_c_string(t.task_name) }
+                name: unsafe { str_from_c_string(t.pcTaskName) }
                     .unwrap_or_else(|_| String::from("?")),
-                task_number: t.task_number,
-                task_state: t.task_state,
-                current_priority: TaskPriority(t.current_priority as u8),
-                base_priority: TaskPriority(t.base_priority as u8),
-                run_time_counter: t.run_time_counter,
-                stack_high_water_mark: t.stack_high_water_mark,
+                task_number: t.xTaskNumber,
+                task_state: t.eCurrentState.into(),
+                current_priority: TaskPriority(t.uxCurrentPriority as u8),
+                base_priority: TaskPriority(t.uxBasePriority as u8),
+                run_time_counter: t.ulRunTimeCounter,
+                stack_high_water_mark: t.usStackHighWaterMark,
             })
             .collect();
 

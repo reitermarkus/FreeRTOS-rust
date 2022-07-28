@@ -14,7 +14,7 @@ pub struct QueueSubscriber<T: Sized + Copy> {
     inner: Arc<SubscriberInner<T>>,
 }
 
-impl<T: Sized + Copy> QueuePublisher<T> {
+impl<T: Sized + Send + Copy> QueuePublisher<T> {
     /// Create a new publisher
     pub fn new() -> Result<QueuePublisher<T>, FreeRtosError> {
         let inner = PublisherInner {
@@ -85,7 +85,7 @@ impl<T: Sized + Copy> Drop for QueueSubscriber<T> {
     }
 }
 
-impl<T: Sized + Copy> QueueSubscriber<T> {
+impl<T: Sized + Send + Copy> QueueSubscriber<T> {
     /// Wait for an item to be posted from the publisher.
     pub fn receive<D: DurationTicks>(&self, max_wait: D) -> Result<T, FreeRtosError> {
         self.inner.queue.receive(max_wait)

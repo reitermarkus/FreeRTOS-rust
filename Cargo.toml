@@ -1,5 +1,4 @@
 [workspace]
-
 members = [
     "freertos-rust",
     "freertos-cargo-build",

@@ -1,49 +1,47 @@
+use core::ptr::NonNull;
+
 use crate::base::*;
 use crate::isr::*;
 use crate::prelude::v1::*;
 use crate::shim::*;
 use crate::units::*;
 
-unsafe impl<T: Sized + Copy> Send for Queue<T> {}
-unsafe impl<T: Sized + Copy> Sync for Queue<T> {}
+unsafe impl<T> Send for Queue<T> {}
+unsafe impl<T> Sync for Queue<T> {}
 
 /// A queue with a finite size. The items are owned by the queue and are
 /// copied.
 #[derive(Debug)]
-pub struct Queue<T: Sized + Copy> {
-    queue: FreeRtosQueueHandle,
+pub struct Queue<T> {
+    handle: NonNull<CVoid>,
     item_type: PhantomData<T>,
 }
 
-impl<T: Sized + Copy> Queue<T> {
+impl<T: Sized + Send + Copy> Queue<T> {
     pub fn new(max_size: usize) -> Result<Queue<T>, FreeRtosError> {
         let item_size = mem::size_of::<T>();
 
         let handle = unsafe { freertos_rs_queue_create(max_size as u32, item_size as u32) };
 
-        if handle == 0 as *const _ {
-            return Err(FreeRtosError::OutOfMemory);
+        match NonNull::new(handle) {
+          Some(handle) => Ok(Queue { handle, item_type: PhantomData }),
+          None => Err(FreeRtosError::OutOfMemory),
         }
-
-        Ok(Queue {
-            queue: handle,
-            item_type: PhantomData,
-        })
     }
 
     pub unsafe fn from_raw_handle(handle: FreeRtosQueueHandle) -> Self {
       Self {
-        queue: handle,
+        handle: NonNull::new_unchecked(handle),
         item_type: PhantomData,
       }
     }
 
     /// Send an item to the end of the queue. Wait for the queue to have empty space for it.
-    pub fn send<D: DurationTicks>(&self, item: T, max_wait: D) -> Result<(), FreeRtosError> {
+    pub fn send<D: DurationTicks>(&self, mut item: T, max_wait: D) -> Result<(), FreeRtosError> {
         unsafe {
             if freertos_rs_queue_send(
-                self.queue,
-                &item as *const _ as FreeRtosVoidPtr,
+                self.handle.as_ptr(),
+                &mut item as *mut _ as FreeRtosVoidPtr,
                 max_wait.to_ticks(),
             ) != 0
             {
@@ -58,12 +56,12 @@ impl<T: Sized + Copy> Queue<T> {
     pub fn send_from_isr(
         &self,
         context: &mut InterruptContext,
-        item: T,
+        mut item: T,
     ) -> Result<(), FreeRtosError> {
         unsafe {
             if freertos_rs_queue_send_isr(
-                self.queue,
-                &item as *const _ as FreeRtosVoidPtr,
+                self.handle.as_ptr(),
+                &mut item as *mut _ as FreeRtosVoidPtr,
                 context.get_task_field_mut(),
             ) != 0
             {
@@ -77,32 +75,31 @@ impl<T: Sized + Copy> Queue<T> {
     /// Wait for an item to be available on the queue.
     pub fn receive<D: DurationTicks>(&self, max_wait: D) -> Result<T, FreeRtosError> {
         unsafe {
-            let mut buff = mem::zeroed::<T>();
+            let mut buff = mem::MaybeUninit::<T>::zeroed();
             let r = freertos_rs_queue_receive(
-                self.queue,
-                &mut buff as *mut _ as FreeRtosMutVoidPtr,
+                self.handle.as_ptr(),
+                buff.as_mut_ptr() as FreeRtosVoidPtr,
                 max_wait.to_ticks(),
             );
             if r == 0 {
-                return Ok(buff);
+                return Ok(buff.assume_init());
             } else {
                 return Err(FreeRtosError::QueueReceiveTimeout);
             }
         }
     }
-
     /// Get the number of messages in the queue.
     pub fn len(&self) -> u32 {
       unsafe {
-        freertos_rs_queue_messages_waiting(self.queue)
+        freertos_rs_queue_messages_waiting(self.handle.as_ptr())
       }
     }
 }
 
-impl<T: Sized + Copy> Drop for Queue<T> {
+impl<T> Drop for Queue<T> {
     fn drop(&mut self) {
         unsafe {
-            freertos_rs_queue_delete(self.queue);
+            freertos_rs_queue_delete(self.handle.as_ptr());
         }
     }
 }

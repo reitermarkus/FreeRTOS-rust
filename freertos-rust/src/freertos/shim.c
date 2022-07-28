@@ -1,10 +1,3 @@
-/*
-FreeRTOS.rs shim library
-Include headers relevant for your platform.
-STM32 example:
-#include "stm32f4xx_hal.h"
-*/
-
 #include "FreeRTOS.h"
 #include "task.h"
 #include "timers.h"
@@ -239,7 +232,7 @@ void freertos_rs_queue_delete(QueueHandle_t queue) {
 	vQueueDelete(queue);
 }
 
-UBaseType_t freertos_rs_queue_send(QueueHandle_t queue, void* item, TickType_t max_wait) {
+UBaseType_t freertos_rs_queue_send(QueueHandle_t queue, void* const item, TickType_t max_wait) {
 	if (xQueueSend(queue, item, max_wait ) != pdTRUE)
 	{
 		return 1;
@@ -248,14 +241,14 @@ UBaseType_t freertos_rs_queue_send(QueueHandle_t queue, void* item, TickType_t m
 	return 0;
 }
 
-UBaseType_t freertos_rs_queue_send_isr(QueueHandle_t queue, void* item, BaseType_t* xHigherPriorityTaskWoken) {
+UBaseType_t freertos_rs_queue_send_isr(QueueHandle_t queue, void* const item, BaseType_t* xHigherPriorityTaskWoken) {
 	if (xQueueSendFromISR(queue, item, xHigherPriorityTaskWoken) == pdTRUE) {
 		return 0;
 	}
 	return 1;
 }
 
-UBaseType_t freertos_rs_queue_receive(QueueHandle_t queue, void* item, TickType_t max_wait) {
+UBaseType_t freertos_rs_queue_receive(QueueHandle_t queue, void* const item, TickType_t max_wait) {
 	if ( xQueueReceive( queue, item, max_wait ) != pdTRUE )
 	{
 		return 1;
@@ -333,6 +326,10 @@ TaskHandle_t freertos_rs_get_current_task() {
 	return xTaskGetCurrentTaskHandle();
 }
 #endif
+
+void freertos_rs_vTaskSuspend(TaskHandle_t task) {
+  vTaskSuspend(task);
+}
 
 void freertos_rs_vTaskSuspendAll() {
   vTaskSuspendAll();

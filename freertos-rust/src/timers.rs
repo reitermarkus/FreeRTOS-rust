@@ -95,7 +95,7 @@ impl Timer {
                 period_ticks,
                 if auto_reload { 1 } else { 0 },
                 param_ptr,
-                timer_callback,
+                Some(timer_callback),
             );
 
             ((ret as usize) != 0, ret)
@@ -124,7 +124,7 @@ impl Timer {
         }
 
         Ok(Timer {
-            handle: timer_handle as *const _,
+            handle: timer_handle,
             detached: false,
         })
     }

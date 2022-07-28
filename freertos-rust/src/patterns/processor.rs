@@ -55,8 +55,8 @@ where
 
 pub struct Processor<I, O>
 where
-    I: ReplyableMessage + Copy,
-    O: Copy,
+    I: ReplyableMessage + Send + Copy,
+    O: Send + Copy,
 {
     queue: Arc<Queue<I>>,
     inner: Arc<Mutex<ProcessorInner<O>>>,
@@ -64,8 +64,8 @@ where
 
 impl<I, O> Processor<I, O>
 where
-    I: ReplyableMessage + Copy,
-    O: Copy,
+    I: ReplyableMessage + Send + Copy,
+    O: Send + Copy,
 {
     pub fn new(queue_size: usize) -> Result<Self, FreeRtosError> {
         let p = ProcessorInner {
@@ -152,8 +152,8 @@ where
 
 impl<I, O> Processor<InputMessage<I>, O>
 where
-    I: Copy,
-    O: Copy,
+    I: Send + Copy,
+    O: Send + Copy,
 {
     pub fn reply_val<D: DurationTicks>(
         &self,
@@ -184,7 +184,7 @@ where
 
 pub struct ProcessorClient<I, C>
 where
-    I: ReplyableMessage + Copy,
+    I: ReplyableMessage + Send + Copy,
 {
     processor_queue: Weak<Queue<I>>,
     client_reply: C,
@@ -192,7 +192,7 @@ where
 
 impl<I, O> ProcessorClient<I, O>
 where
-    I: ReplyableMessage + Copy,
+    I: ReplyableMessage + Send + Copy,
 {
     pub fn send<D: DurationTicks>(&self, message: I, max_wait: D) -> Result<(), FreeRtosError> {
         let processor_queue = self
@@ -218,7 +218,7 @@ where
 
 impl<I> ProcessorClient<InputMessage<I>, ()>
 where
-    I: Copy,
+    I: Send + Copy,
 {
     pub fn send_val<D: DurationTicks>(&self, val: I, max_wait: D) -> Result<(), FreeRtosError> {
         self.send(InputMessage::request(val), max_wait)
@@ -235,8 +235,8 @@ where
 
 impl<I, O> ProcessorClient<I, SharedClientWithReplyQueue<O>>
 where
-    I: ReplyableMessage + Copy,
-    O: Copy,
+    I: ReplyableMessage + Send + Copy,
+    O: Send + Copy,
 {
     pub fn call<D: DurationTicks>(&self, message: I, max_wait: D) -> Result<O, FreeRtosError> {
         self.send(message, max_wait)?;
@@ -250,8 +250,8 @@ where
 
 impl<I, O> ProcessorClient<InputMessage<I>, SharedClientWithReplyQueue<O>>
 where
-    I: Copy,
-    O: Copy,
+    I: Send + Copy,
+    O: Send + Copy,
 {
     pub fn send_val<D: DurationTicks>(&self, val: I, max_wait: D) -> Result<(), FreeRtosError> {
         self.send(InputMessage::request(val), max_wait)
@@ -268,7 +268,7 @@ where
 
 impl<I, C> Clone for ProcessorClient<I, C>
 where
-    I: ReplyableMessage + Copy,
+    I: ReplyableMessage + Send + Copy,
     C: Clone,
 {
     fn clone(&self) -> Self {

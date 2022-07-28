@@ -133,7 +133,7 @@ pub struct MutexNormal(FreeRtosSemaphoreHandle);
 impl MutexInnerImpl for MutexNormal {
     fn create() -> Result<Self, FreeRtosError> {
         let m = unsafe { freertos_rs_create_mutex() };
-        if m == 0 as *const _ {
+        if m.is_null() {
             return Err(FreeRtosError::OutOfMemory);
         }
         Ok(MutexNormal(m))
@@ -173,7 +173,7 @@ pub struct MutexRecursive(FreeRtosSemaphoreHandle);
 impl MutexInnerImpl for MutexRecursive {
     fn create() -> Result<Self, FreeRtosError> {
         let m = unsafe { freertos_rs_create_recursive_mutex() };
-        if m == 0 as *const _ {
+        if m.is_null() {
             return Err(FreeRtosError::OutOfMemory);
         }
         Ok(MutexRecursive(m))
