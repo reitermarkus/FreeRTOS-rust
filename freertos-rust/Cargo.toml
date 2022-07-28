@@ -24,3 +24,11 @@ sync = ["interrupt"]
 time = ["interrupt"]
 hooks = []
 interrupt = []
+
+heap_1 = []
+heap_2 = []
+heap_3 = []
+heap_4 = []
+
+[build-dependencies]
+freertos-cargo-build = { path = "../freertos-cargo-build" }

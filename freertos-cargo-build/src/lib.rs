@@ -258,12 +258,12 @@ impl Builder {
             b.file(f);
         });
 
-        let res = b.try_compile("freertos");
-        if res.is_err() {
-            return Err(Error::new(&format!("{}", res.unwrap_err())));
+        match b.try_compile("freertos") {
+          Ok(()) => Ok(()),
+          Err(err) => {
+            Err(Error::new(&format!("{}", err)))
+          }
         }
-
-        Ok(())
     }
 }
 
