@@ -1,4 +1,3 @@
-use cc::Build;
 use std::fmt::Display;
 use std::{fmt, env};
 use std::path::{Path, PathBuf};
@@ -28,7 +27,7 @@ pub struct Builder {
     freertos_port: Option<String>,
     // name of the heap_?.c file
     heap_c: String,
-    cc: Build,
+    cc: cc::Build,
 }
 
 pub struct Error {
@@ -72,7 +71,6 @@ impl Builder {
         };
         return b;
     }
-
 
     /// Set the path to freeRTOS source
     /// Default is loaded from ENV variable "FREERTOS_SRC"
@@ -149,8 +147,8 @@ impl Builder {
         self.heap_c = file_name;
     }
 
-    /// Access to the underlining cc::Build instance to further customize the build.
-    pub fn get_cc(&mut self) -> &mut Build {
+    /// Access to the underlining `cc::Build` instance to further customize the build.
+    pub fn get_cc(&mut self) -> &mut cc::Build {
         &mut self.cc
     }
 
@@ -166,7 +164,7 @@ impl Builder {
         self.freertos_port = Some(port_dir);
     }
 
-    fn get_freertos_port_dir(&self) -> PathBuf {
+    pub fn get_freertos_port_dir(&self) -> PathBuf {
         let base = self.freertos_dir.join("portable");
         if self.freertos_port.is_some() {
             return base.join(self.freertos_port.as_ref().unwrap());
@@ -201,22 +199,22 @@ impl Builder {
 
     /// Check that all required files and paths exist
     fn verify_paths(&self) -> Result<(), Error> {
-        if !self.freertos_dir.clone().exists() {
+        if !self.freertos_dir.exists() {
             return Err(Error::new(&format!("Directory freertos_dir does not exist: {}", self.freertos_dir.to_str().unwrap())));
         }
         let port_dir = self.get_freertos_port_dir();
-        if !port_dir.clone().exists() {
+        if !port_dir.exists() {
             return Err(Error::new(&format!("Directory freertos_port_dir does not exist: {}", port_dir.to_str().unwrap())));
         }
 
         let include_dir = self.freertos_include_dir();
-        if !include_dir.clone().exists() {
+        if !include_dir.exists() {
             return Err(Error::new(&format!("Directory freertos_include_dir does not exist: {}", include_dir.to_str().unwrap())));
         }
 
         // The heap implementation
         let heap_c = self.heap_c_file();
-        if !heap_c.clone().exists() || !heap_c.clone().is_file() {
+        if !heap_c.exists() || !heap_c.is_file() {
             return Err(Error::new(&format!("File heap_?.c does not exist: {}", heap_c.to_str().unwrap())));
         }
 
@@ -227,7 +225,7 @@ impl Builder {
 
         // Add the freertos shim.c to support freertos-rust
         let shim_c = self.shim_c_file();
-        if !shim_c.clone().exists() || !shim_c.clone().is_file() {
+        if !shim_c.exists() || !shim_c.is_file() {
             return Err(Error::new(&format!("File freertos_shim '{}' does not exist, missing freertos-rust dependency?", shim_c.clone().to_str().unwrap())));
         }
 

@@ -5,12 +5,10 @@ Utility lib for building & using FreeRTOS in rust projects inside the build.rs.
 """
 version = "0.1.1"
 authors = ["Tobias Kaupat <tk@lobaro.de>"]
-edition = "2018"
+edition = "2021"
 license = "MIT"
 readme = "README.md"
 repository = "https://github.com/lobaro/FreeRTOS-rust"
-
-[lib]
 
 [dependencies]
 cc = "1.0.73"
