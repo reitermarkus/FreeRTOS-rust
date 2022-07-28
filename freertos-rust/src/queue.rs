@@ -90,6 +90,13 @@ impl<T: Sized + Copy> Queue<T> {
             }
         }
     }
+
+    /// Get the number of messages in the queue.
+    pub fn len(&self) -> u32 {
+      unsafe {
+        freertos_rs_queue_messages_waiting(self.queue)
+      }
+    }
 }
 
 impl<T: Sized + Copy> Drop for Queue<T> {
