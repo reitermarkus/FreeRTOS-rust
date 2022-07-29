@@ -2,58 +2,30 @@ use crate::base::FreeRtosTickType;
 use crate::prelude::v1::*;
 use crate::shim::*;
 
-pub trait FreeRtosTimeUnits {
-    fn get_tick_period_ms() -> u32;
-    fn get_max_wait() -> u32;
-}
-
-#[derive(Copy, Clone, Default)]
-pub struct FreeRtosTimeUnitsShimmed;
-impl FreeRtosTimeUnits for FreeRtosTimeUnitsShimmed {
-    #[inline]
-    fn get_tick_period_ms() -> u32 {
-      PORT_TICK_PERIOD_MS
-    }
-
-    #[inline]
-    fn get_max_wait() -> u32 {
-        PORT_MAX_DELAY
-    }
-}
-
 pub trait DurationTicks: Copy + Clone {
     /// Convert to ticks, the internal time measurement unit of FreeRTOS
     fn to_ticks(&self) -> FreeRtosTickType;
 }
 
-pub type Duration = DurationImpl<FreeRtosTimeUnitsShimmed>;
-
 /// Time unit used by FreeRTOS, passed to the scheduler as ticks.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
-pub struct DurationImpl<T> {
+pub struct Duration {
     ticks: u32,
-    _time_units: PhantomData<T>,
 }
 
-impl<T> DurationImpl<T>
-where
-    T: FreeRtosTimeUnits + Copy,
-{
+impl Duration {
     /// Milliseconds constructor
     pub fn ms(milliseconds: u32) -> Self {
-        Self::ticks(milliseconds / T::get_tick_period_ms())
+        Self::ticks(milliseconds / PORT_TICK_PERIOD_MS)
     }
 
     pub fn ticks(ticks: u32) -> Self {
-        DurationImpl {
-            ticks: ticks,
-            _time_units: PhantomData,
-        }
+        Self { ticks }
     }
 
     /// An infinite duration
     pub fn infinite() -> Self {
-        Self::ticks(T::get_max_wait())
+        Self::ticks(PORT_MAX_DELAY)
     }
 
     /// A duration of zero, for non-blocking calls
@@ -67,14 +39,11 @@ where
     }
 
     pub fn to_ms(&self) -> u32 {
-        self.ticks * T::get_tick_period_ms()
+        self.ticks * PORT_TICK_PERIOD_MS
     }
 }
 
-impl<T> DurationTicks for DurationImpl<T>
-where
-    T: FreeRtosTimeUnits + Copy,
-{
+impl DurationTicks for Duration {
     fn to_ticks(&self) -> FreeRtosTickType {
         self.ticks
     }
