@@ -233,6 +233,13 @@ impl Task {
         }
     }
 
+    /// Take the notification and either clear the notification value or decrement it by one.
+    pub fn take_notification<D: DurationTicks>(clear: bool, wait_for: D) -> u32 {
+        unsafe {
+            freertos_rs_task_notify_take(if clear { 1 } else { 0 }, wait_for.to_ticks())
+        }
+    }
+
     /// Notify this task from an interrupt.
     pub fn notify_from_isr(
         &self,
@@ -294,16 +301,6 @@ impl CurrentTask {
         unsafe {
             freertos_rs_vTaskDelay(delay.to_ticks());
         }
-    }
-
-    /// Take the notification and either clear the notification value or decrement it by one.
-    pub fn take_notification<D: DurationTicks>(clear: bool, wait_for: D) -> u32 {
-      unsafe { freertos_rs_task_notify_take(if clear { 1 } else { 0 }, wait_for.to_ticks()) }
-  }
-
-    /// Get the minimum amount of stack that was ever left on the current task.
-    pub fn get_stack_high_water_mark() -> u32 {
-        unsafe { freertos_rs_get_stack_high_water_mark(ptr::null_mut()) as u32 }
     }
 }
 
