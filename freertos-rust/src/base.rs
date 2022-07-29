@@ -22,7 +22,6 @@ pub type FreeRtosChar = u8;
 pub type FreeRtosBaseType = i32;
 pub type FreeRtosUBaseType = u32;
 pub type FreeRtosTickType = u32;
-pub type FreeRtosBaseTypeMutPtr = *mut FreeRtosBaseType;
 
 pub type FreeRtosTaskHandle = *mut CVoid;
 pub type FreeRtosQueueHandle = *mut CVoid;

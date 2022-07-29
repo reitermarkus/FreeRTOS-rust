@@ -5,6 +5,7 @@ use crate::shim::*;
 /// task at the end of the interrupt.
 ///
 /// Should be dropped as the last thing inside a interrupt.
+#[repr(transparent)]
 pub struct InterruptContext {
     x_higher_priority_task_woken: FreeRtosBaseType,
 }
@@ -17,8 +18,8 @@ impl InterruptContext {
         }
     }
 
-    pub unsafe fn get_task_field_mut(&self) -> FreeRtosBaseTypeMutPtr {
-        self.x_higher_priority_task_woken as *mut _
+    pub fn x_higher_priority_task_woken(&mut self) -> *mut FreeRtosBaseType {
+        &mut self.x_higher_priority_task_woken
     }
 }
 

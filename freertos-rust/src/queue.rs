@@ -62,7 +62,7 @@ impl<T: Sized + Send + Copy> Queue<T> {
             if freertos_rs_queue_send_isr(
                 self.handle.as_ptr(),
                 &mut item as *mut _ as FreeRtosVoidPtr,
-                context.get_task_field_mut(),
+                context.x_higher_priority_task_woken(),
             ) != 0
             {
                 Err(FreeRtosError::QueueFull)

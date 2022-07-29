@@ -243,7 +243,7 @@ impl Task {
     /// Notify this task from an interrupt.
     pub fn notify_from_isr(
         &self,
-        context: &InterruptContext,
+        context: &mut InterruptContext,
         notification: TaskNotification,
     ) -> Result<(), FreeRtosError> {
         unsafe {
@@ -252,7 +252,7 @@ impl Task {
                 self.handle.as_ptr(),
                 n.0,
                 n.1,
-                context.get_task_field_mut(),
+                context.x_higher_priority_task_woken(),
             );
             if t != 0 {
                 Err(FreeRtosError::QueueFull)
