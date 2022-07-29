@@ -114,6 +114,12 @@ impl Task {
       Self { handle: NonNull::new_unchecked(handle) }
     }
 
+    pub fn suspend(&self) {
+        unsafe {
+            freertos_rs_vTaskSuspend(self.handle.as_ptr())
+        }
+    }
+
     pub fn suspend_all() {
       unsafe {
           freertos_rs_vTaskSuspendAll();
@@ -287,12 +293,6 @@ impl CurrentTask {
     pub fn delay<D: DurationTicks>(delay: D) {
         unsafe {
             freertos_rs_vTaskDelay(delay.to_ticks());
-        }
-    }
-
-    pub fn suspend() {
-        unsafe {
-            freertos_rs_vTaskSuspend(ptr::null_mut())
         }
     }
 
