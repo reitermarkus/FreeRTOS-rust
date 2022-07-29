@@ -1,8 +1,11 @@
+use core::ptr::NonNull;
+
 use crate::InterruptContext;
 use crate::base::*;
 use crate::prelude::v1::*;
 use crate::shim::*;
 use crate::units::*;
+use crate::Task;
 
 unsafe impl Send for Timer {}
 unsafe impl Sync for Timer {}
@@ -13,7 +16,7 @@ unsafe impl Sync for Timer {}
 /// that receives messages in a queue. Every operation has an associated waiting time
 /// for that queue to get unblocked.
 pub struct Timer {
-    handle: FreeRtosTimerHandle,
+    handle: NonNull<CVoid>,
     detached: bool,
 }
 
@@ -61,6 +64,8 @@ impl<D: DurationTicks> TimerBuilder<D> {
 }
 
 impl Timer {
+    pub const STACK_SIZE: u16 = TIMER_TASK_STACK_SIZE;
+
     /// Create a new timer builder.
     pub fn new<D: DurationTicks>(period: D) -> TimerBuilder<D> {
         TimerBuilder {
@@ -72,7 +77,11 @@ impl Timer {
 
     /// Create a timer from a raw handle.
     pub unsafe fn from_raw_handle(handle: FreeRtosTimerHandle) -> Self {
-        Self { handle, detached: false }
+        Self { handle: NonNull::new_unchecked(handle), detached: false }
+    }
+
+    pub fn daemon_task() -> Task {
+        unsafe { Task::from_raw_handle(xTimerGetTimerDaemonTaskHandle()) }
     }
 
     unsafe fn spawn_inner<'a>(
@@ -84,10 +93,9 @@ impl Timer {
         let f = Box::new(callback);
         let param_ptr = &*f as *const _ as *mut _;
 
-        let (success, timer_handle) = {
+        let timer_handle = {
             let name = name.as_bytes();
             let name_len = name.len();
-            let mut _timer_handle = mem::zeroed::<CVoid>();
 
             let ret = freertos_rs_timer_create(
                 name.as_ptr(),
@@ -98,20 +106,20 @@ impl Timer {
                 Some(timer_callback),
             );
 
-            ((ret as usize) != 0, ret)
+            match NonNull::new(ret) {
+              Some(handle) => {
+                mem::forget(f);
+                handle
+              },
+              None => return Err(FreeRtosError::OutOfMemory)
+            }
         };
-
-        if success {
-            mem::forget(f);
-        } else {
-            return Err(FreeRtosError::OutOfMemory);
-        }
 
         extern "C" fn timer_callback(handle: FreeRtosTimerHandle) -> () {
             unsafe {
                 {
                     let timer = Timer {
-                        handle: handle,
+                        handle: NonNull::new_unchecked(handle),
                         detached: true,
                     };
                     if let Ok(callback_ptr) = timer.get_id() {
@@ -145,7 +153,7 @@ impl Timer {
     /// Start the timer.
     pub fn start<D: DurationTicks>(&self, block_time: D) -> Result<(), FreeRtosError> {
         unsafe {
-            if freertos_rs_timer_start(self.handle, block_time.to_ticks()) == 0 {
+            if freertos_rs_timer_start(self.handle.as_ptr(), block_time.to_ticks()) == 0 {
                 Ok(())
             } else {
                 Err(FreeRtosError::Timeout)
@@ -156,7 +164,7 @@ impl Timer {
     /// Start the timer from an interrupt.
     pub fn start_from_isr(&self, context: &InterruptContext) -> Result<(), FreeRtosError> {
         unsafe {
-            if freertos_rs_timer_start_from_isr(self.handle, context.get_task_field_mut()) == 0 {
+            if freertos_rs_timer_start_from_isr(self.handle.as_ptr(), context.get_task_field_mut()) == 0 {
                 Ok(())
             } else {
                 Err(FreeRtosError::QueueSendTimeout)
@@ -167,7 +175,7 @@ impl Timer {
     /// Stop the timer.
     pub fn stop<D: DurationTicks>(&self, block_time: D) -> Result<(), FreeRtosError> {
         unsafe {
-            if freertos_rs_timer_stop(self.handle, block_time.to_ticks()) == 0 {
+            if freertos_rs_timer_stop(self.handle.as_ptr(), block_time.to_ticks()) == 0 {
                 Ok(())
             } else {
                 Err(FreeRtosError::Timeout)
@@ -183,7 +191,7 @@ impl Timer {
     ) -> Result<(), FreeRtosError> {
         unsafe {
             if freertos_rs_timer_change_period(
-                self.handle,
+                self.handle.as_ptr(),
                 block_time.to_ticks(),
                 new_period.to_ticks(),
             ) == 0
@@ -204,7 +212,7 @@ impl Timer {
     }
 
     fn get_id(&self) -> Result<FreeRtosVoidPtr, FreeRtosError> {
-        unsafe { Ok(freertos_rs_timer_get_id(self.handle)) }
+        unsafe { Ok(freertos_rs_timer_get_id(self.handle.as_ptr())) }
     }
 }
 
@@ -222,7 +230,7 @@ impl Drop for Timer {
             }
 
             // todo: configurable timeout?
-            freertos_rs_timer_delete(self.handle, Duration::ms(1000).to_ticks());
+            freertos_rs_timer_delete(self.handle.as_ptr(), Duration::ms(1000).to_ticks());
         }
     }
 }

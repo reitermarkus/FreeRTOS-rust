@@ -1,3 +1,5 @@
+use core::ptr::NonNull;
+
 use crate::base::*;
 use crate::isr::*;
 use crate::prelude::v1::*;
@@ -5,13 +7,13 @@ use crate::shim::*;
 use crate::units::*;
 use crate::utils::*;
 
-unsafe impl Send for Task {}
-
 /// Handle for a FreeRTOS task
 #[derive(Debug, Clone)]
 pub struct Task {
-    task_handle: FreeRtosTaskHandle,
+    handle: NonNull<CVoid>,
 }
+
+unsafe impl Send for Task {}
 
 /// Task's execution priority. Low priority numbers denote low priority tasks.
 #[derive(Debug, Copy, Clone)]
@@ -96,6 +98,9 @@ impl TaskBuilder {
 }
 
 impl Task {
+    /// Minimal task stack size.
+    pub const MINIMAL_STACK_SIZE: u16 = TASK_MINIMAL_STACK_SIZE;
+
     /// Prepare a builder object for the new task.
     pub fn new() -> TaskBuilder {
         TaskBuilder {
@@ -106,7 +111,7 @@ impl Task {
     }
 
     pub unsafe fn from_raw_handle(handle: FreeRtosTaskHandle) -> Self {
-      Self { task_handle: handle }
+      Self { handle: NonNull::new_unchecked(handle) }
     }
 
     pub fn suspend_all() {
@@ -133,7 +138,7 @@ impl Task {
         let task_handle = {
             let name = name.as_bytes();
             let name_len = name.len();
-            let mut task_handle = mem::MaybeUninit::<FreeRtosTaskHandle>::uninit();
+            let task_handle = NonNull::dangling();
 
             let ret = freertos_rs_spawn_task(
                 Some(thread_start),
@@ -142,7 +147,7 @@ impl Task {
                 name_len as u8,
                 stack_size,
                 priority.to_freertos(),
-                task_handle.as_mut_ptr(),
+                &mut task_handle.as_ptr(),
             );
 
             if ret != 0 {
@@ -150,7 +155,7 @@ impl Task {
             }
 
             mem::forget(f);
-            task_handle.assume_init()
+            task_handle
         };
 
         unsafe extern "C" fn thread_start(main: *mut CVoid) {
@@ -158,7 +163,7 @@ impl Task {
                 {
                     let b = Box::from_raw(main as *mut Box<dyn FnOnce(Task)>);
                     b(Task {
-                        task_handle: freertos_rs_get_current_task(),
+                        handle: NonNull::new_unchecked(freertos_rs_get_current_task()),
                     });
                 }
 
@@ -167,7 +172,7 @@ impl Task {
         }
 
         Ok(Task {
-            task_handle: task_handle,
+            handle: task_handle,
         })
     }
 
@@ -189,7 +194,7 @@ impl Task {
     /// Get the name of the current task.
     pub fn get_name(&self) -> Result<String, ()> {
         unsafe {
-            let name_ptr = freertos_rs_task_get_name(self.task_handle);
+            let name_ptr = freertos_rs_task_get_name(self.handle.as_ptr());
             let name = str_from_c_string(name_ptr);
             if let Ok(name) = name {
                 return Ok(name);
@@ -202,12 +207,10 @@ impl Task {
     /// Try to find the task of the current execution context.
     pub fn current() -> Result<Task, FreeRtosError> {
         unsafe {
-            let t = freertos_rs_get_current_task();
-            if t.is_null() {
-                return Err(FreeRtosError::TaskNotFound)
+            match NonNull::new(freertos_rs_get_current_task()) {
+              Some(handle) => Ok(Task { handle }),
+              None => Err(FreeRtosError::TaskNotFound),
             }
-
-            Ok(Task { task_handle: t })
         }
     }
 
@@ -220,7 +223,7 @@ impl Task {
     pub fn notify(&self, notification: TaskNotification) {
         unsafe {
             let n = notification.to_freertos();
-            freertos_rs_task_notify(self.task_handle, n.0, n.1);
+            freertos_rs_task_notify(self.handle.as_ptr(), n.0, n.1);
         }
     }
 
@@ -233,7 +236,7 @@ impl Task {
         unsafe {
             let n = notification.to_freertos();
             let t = freertos_rs_task_notify_isr(
-                self.task_handle,
+                self.handle.as_ptr(),
                 n.0,
                 n.1,
                 context.get_task_field_mut(),
@@ -272,7 +275,7 @@ impl Task {
 
     /// Get the minimum amount of stack that was ever left on this task.
     pub fn get_stack_high_water_mark(&self) -> u32 {
-        unsafe { freertos_rs_get_stack_high_water_mark(self.task_handle) as u32 }
+        unsafe { freertos_rs_get_stack_high_water_mark(self.handle.as_ptr()) as u32 }
     }
 }
 
@@ -289,7 +292,7 @@ impl CurrentTask {
 
     pub fn suspend() {
         unsafe {
-            freertos_rs_vTaskSuspend(0 as FreeRtosTaskHandle)
+            freertos_rs_vTaskSuspend(ptr::null_mut())
         }
     }
 
@@ -300,7 +303,7 @@ impl CurrentTask {
 
     /// Get the minimum amount of stack that was ever left on the current task.
     pub fn get_stack_high_water_mark() -> u32 {
-        unsafe { freertos_rs_get_stack_high_water_mark(0 as FreeRtosTaskHandle) as u32 }
+        unsafe { freertos_rs_get_stack_high_water_mark(ptr::null_mut()) as u32 }
     }
 }
 
@@ -428,7 +431,7 @@ impl FreeRtosUtils {
             .into_iter()
             .map(|t| FreeRtosTaskStatus {
                 task: Task {
-                    task_handle: t.xHandle,
+                    handle: unsafe { NonNull::new_unchecked(t.xHandle) },
                 },
                 name: unsafe { str_from_c_string(t.pcTaskName) }
                     .unwrap_or_else(|_| String::from("?")),

@@ -4,6 +4,9 @@
 #include "queue.h"
 #include "semphr.h"
 
+const uint16_t TASK_MINIMAL_STACK_SIZE = configMINIMAL_STACK_SIZE;
+const uint16_t TIMER_TASK_STACK_SIZE = configTIMER_TASK_STACK_DEPTH;
+
 // Just for testing
 void freertos_rs_invoke_configASSERT() {
 	configASSERT(0);
@@ -301,7 +304,7 @@ eNotifyAction freertos_rs_task_notify_action(uint8_t action) {
 	}
 }
 
-BaseType_t freertos_rs_task_notify(void* task, uint32_t value, uint8_t action) {
+BaseType_t freertos_rs_task_notify(TaskHandle_t task, uint32_t value, uint8_t action) {
 	eNotifyAction eAction = freertos_rs_task_notify_action(action);
 
 	BaseType_t v = xTaskNotify(task, value, eAction);
@@ -311,7 +314,7 @@ BaseType_t freertos_rs_task_notify(void* task, uint32_t value, uint8_t action) {
 	return 0;
 }
 
-BaseType_t freertos_rs_task_notify_isr(void* task, uint32_t value, uint8_t action, BaseType_t* xHigherPriorityTaskWoken) {
+BaseType_t freertos_rs_task_notify_isr(TaskHandle_t task, uint32_t value, uint8_t action, BaseType_t* xHigherPriorityTaskWoken) {
 	eNotifyAction eAction = freertos_rs_task_notify_action(action);
 
 	BaseType_t v = xTaskNotifyFromISR(task, value, eAction, xHigherPriorityTaskWoken);
