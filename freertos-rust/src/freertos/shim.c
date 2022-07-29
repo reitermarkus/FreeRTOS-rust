@@ -113,9 +113,7 @@ unsigned long freertos_rs_get_configCPU_CLOCK_HZ() {
   return configCPU_CLOCK_HZ;
 }
 
-TickType_t freertos_rs_get_portTICK_PERIOD_MS() {
-	return portTICK_PERIOD_MS;
-}
+const TickType_t PORT_TICK_PERIOD_MS = portTICK_PERIOD_MS;
 
 UBaseType_t freertos_rs_get_number_of_tasks() {
 	return uxTaskGetNumberOfTasks();
@@ -268,17 +266,14 @@ void freertos_rs_isr_yield() {
 	portYIELD();
 }
 
-TickType_t freertos_rs_max_wait() {
-	return portMAX_DELAY;
-}
-
+const TickType_t PORT_MAX_DELAY = portMAX_DELAY;
 
 char* freertos_rs_task_get_name(TaskHandle_t task) {
 	return pcTaskGetName(task);
 }
 
-uint32_t freertos_rs_task_notify_take(uint8_t clear_count, TickType_t wait) {
-	return ulTaskNotifyTake(clear_count == 1 ? pdTRUE : pdFALSE, wait);
+uint32_t freertos_rs_task_notify_take(BaseType_t clear_count, TickType_t wait) {
+	return ulTaskNotifyTake(clear_count == 0 ? pdFALSE : pdTRUE, wait);
 }
 
 BaseType_t freertos_rs_task_notify_wait(uint32_t ulBitsToClearOnEntry, uint32_t ulBitsToClearOnExit, uint32_t *pulNotificationValue, TickType_t xTicksToWait) {

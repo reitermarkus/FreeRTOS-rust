@@ -12,11 +12,12 @@ pub struct FreeRtosTimeUnitsShimmed;
 impl FreeRtosTimeUnits for FreeRtosTimeUnitsShimmed {
     #[inline]
     fn get_tick_period_ms() -> u32 {
-        unsafe { freertos_rs_get_portTICK_PERIOD_MS() }
+      PORT_TICK_PERIOD_MS
     }
+
     #[inline]
     fn get_max_wait() -> u32 {
-        unsafe { freertos_rs_max_wait() }
+        PORT_MAX_DELAY
     }
 }
 
