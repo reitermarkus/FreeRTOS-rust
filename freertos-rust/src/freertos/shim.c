@@ -148,8 +148,16 @@ QueueHandle_t freertos_rs_create_binary_semaphore() {
 	return xSemaphoreCreateBinary();
 }
 
+QueueHandle_t freertos_rs_create_binary_semaphore_static(StaticSemaphore_t* pxStaticSemaphore) {
+	return xSemaphoreCreateBinaryStatic(pxStaticSemaphore);
+}
+
 QueueHandle_t freertos_rs_create_counting_semaphore(UBaseType_t max, UBaseType_t initial) {
 	return xSemaphoreCreateCounting(max, initial);
+}
+
+QueueHandle_t freertos_rs_create_counting_semaphore_static(UBaseType_t max, UBaseType_t initial, StaticSemaphore_t* pxSemaphoreBuffer) {
+	return xSemaphoreCreateCountingStatic(max, initial, pxSemaphoreBuffer);
 }
 
 void freertos_rs_delete_semaphore(QueueHandle_t semaphore) {

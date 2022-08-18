@@ -8,9 +8,6 @@ use crate::prelude::v1::*;
 use crate::shim::*;
 use crate::units::*;
 
-unsafe impl<T> Send for Queue<T> {}
-unsafe impl<T> Sync for Queue<T> {}
-
 pub type StaticQueue = StaticQueue_t;
 
 #[macro_export]
@@ -66,6 +63,9 @@ pub struct Queue<T> {
     handle: NonNull<CVoid>,
     item_type: PhantomData<T>,
 }
+
+unsafe impl<T> Send for Queue<T> {}
+unsafe impl<T> Sync for Queue<T> {}
 
 impl<T: Sized + Send + Copy> Queue<T> {
     pub fn new_static<const LEN: usize>(
