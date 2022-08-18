@@ -80,6 +80,10 @@ impl Timer {
         Self { handle: NonNull::new_unchecked(handle), detached: false }
     }
 
+    pub fn as_raw_handle(&self) -> FreeRtosTimerHandle {
+      self.handle.as_ptr()
+    }
+
     pub fn daemon_task() -> Task {
         unsafe { Task::from_raw_handle(xTimerGetTimerDaemonTaskHandle()) }
     }
@@ -181,6 +185,10 @@ impl Timer {
                 Err(FreeRtosError::Timeout)
             }
         }
+    }
+
+    pub fn is_active(&self) -> bool {
+        unsafe { xTimerIsTimerActive(self.handle.as_ptr()) != 0 }
     }
 
     /// Change the period of the timer.
