@@ -114,6 +114,10 @@ impl Task {
       Self { handle: NonNull::new_unchecked(handle) }
     }
 
+    pub unsafe fn as_raw_handle(&self) -> FreeRtosTaskHandle {
+      self.handle.as_ptr()
+    }
+
     pub fn suspend(&self) {
         unsafe {
             freertos_rs_vTaskSuspend(self.handle.as_ptr())
