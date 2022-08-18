@@ -229,11 +229,15 @@ QueueHandle_t freertos_rs_queue_create(UBaseType_t queue_length, UBaseType_t ite
 	return xQueueCreate(queue_length, item_size);
 }
 
+QueueHandle_t freertos_rs_queue_create_static(UBaseType_t queue_length, UBaseType_t item_size, uint8_t* pucQueueStorageBuffer, StaticQueue_t* pxQueueBuffer) {
+	return xQueueCreateStatic(queue_length, item_size, pucQueueStorageBuffer, pxQueueBuffer);
+}
+
 void freertos_rs_queue_delete(QueueHandle_t queue) {
 	vQueueDelete(queue);
 }
 
-UBaseType_t freertos_rs_queue_send(QueueHandle_t queue, void* const item, TickType_t max_wait) {
+UBaseType_t freertos_rs_queue_send(QueueHandle_t queue, const void* const item, TickType_t max_wait) {
 	if (xQueueSend(queue, item, max_wait ) != pdTRUE)
 	{
 		return 1;
@@ -242,7 +246,7 @@ UBaseType_t freertos_rs_queue_send(QueueHandle_t queue, void* const item, TickTy
 	return 0;
 }
 
-UBaseType_t freertos_rs_queue_send_isr(QueueHandle_t queue, void* const item, BaseType_t* xHigherPriorityTaskWoken) {
+UBaseType_t freertos_rs_queue_send_isr(QueueHandle_t queue, const void* const item, BaseType_t* xHigherPriorityTaskWoken) {
 	if (xQueueSendFromISR(queue, item, xHigherPriorityTaskWoken) == pdTRUE) {
 		return 0;
 	}
