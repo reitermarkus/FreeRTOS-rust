@@ -197,7 +197,7 @@ UBaseType_t freertos_rs_give_semaphore_isr(QueueHandle_t semaphore, BaseType_t* 
 }
 
 
-UBaseType_t freertos_rs_spawn_task(TaskFunction_t entry_point, void* pvParameters, const char * const name, uint8_t name_len, uint16_t stack_size, UBaseType_t priority, TaskHandle_t* task_handle) {
+UBaseType_t freertos_rs_spawn_task(TaskFunction_t entry_point, void* pvParameters, const char * const name, uint8_t name_len, uint16_t stack_size, UBaseType_t priority, TaskHandle_t *const task_handle) {
 	char c_name[configMAX_TASK_NAME_LEN] = {0};
 	for (int i = 0; i < name_len; i++) {
 		c_name[i] = name[i];

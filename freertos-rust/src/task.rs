@@ -148,7 +148,7 @@ impl Task {
         let task_handle = {
             let name = name.as_bytes();
             let name_len = name.len();
-            let task_handle = NonNull::dangling();
+            let mut task_handle = ptr::null_mut();
 
             let ret = freertos_rs_spawn_task(
                 Some(thread_start),
@@ -157,15 +157,15 @@ impl Task {
                 name_len as u8,
                 stack_size,
                 priority.to_freertos(),
-                &mut task_handle.as_ptr(),
+                &mut task_handle,
             );
 
-            if ret != 0 {
+            if ret != 0 || task_handle.is_null() {
                 return Err(FreeRtosError::OutOfMemory)
             }
 
             mem::forget(f);
-            task_handle
+            NonNull::new_unchecked(task_handle)
         };
 
         unsafe extern "C" fn thread_start(main: *mut CVoid) {
