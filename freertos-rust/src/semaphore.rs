@@ -1,7 +1,7 @@
 use core::mem::MaybeUninit;
 use core::{ptr::NonNull, mem};
 
-use crate::base::*;
+use crate::{base::*, InterruptContext};
 use crate::shim::*;
 use crate::units::*;
 
@@ -105,6 +105,11 @@ impl Semaphore {
     }
 
     #[inline]
+    pub fn give_from_isr(&self, ic: &mut InterruptContext) -> Result<(), FreeRtosError> {
+      unsafe { semaphore_give_from_isr(self.handle, ic) }
+    }
+
+    #[inline]
     pub fn take<D: DurationTicks>(&self, max_wait: D) -> Result<(), FreeRtosError> {
       unsafe { semaphore_take(self.handle, max_wait) }
     }
@@ -138,13 +143,23 @@ impl Drop for SemaphoreGuard {
 }
 
 unsafe fn semaphore_give(handle: NonNull<CVoid>) -> Result<(), FreeRtosError> {
-  let res = freertos_rs_give_mutex(handle.as_ptr());
+    let res = freertos_rs_give_mutex(handle.as_ptr());
 
-      if res != 0 {
-        return Err(FreeRtosError::MutexTimeout);
-      }
+    if res != 0 {
+      return Err(FreeRtosError::MutexTimeout);
+    }
 
-      Ok(())
+    Ok(())
+}
+
+unsafe fn semaphore_give_from_isr(handle: NonNull<CVoid>, ic: &mut InterruptContext) -> Result<(), FreeRtosError> {
+    let res = freertos_rs_give_semaphore_isr(handle.as_ptr(), ic.x_higher_priority_task_woken());
+
+    if res != 0 {
+      return Err(FreeRtosError::MutexTimeout);
+    }
+
+    Ok(())
 }
 
 unsafe fn semaphore_take<D: DurationTicks>(handle: NonNull<CVoid>, max_wait: D) -> Result<(), FreeRtosError> {
