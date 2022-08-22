@@ -23,7 +23,7 @@ impl ComputeTaskBuilder for TaskBuilder {
         R: Sync + Send + 'static,
     {
         let (task, result, status) = {
-            let result = Arc::new(Mutex::new(None)?);
+            let result = Arc::new(Mutex::new(None));
             let status = Arc::new(Queue::new(1)?);
 
             let task_result = result.clone();

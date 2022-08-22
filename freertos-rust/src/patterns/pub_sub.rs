@@ -23,7 +23,7 @@ impl<T: Sized + Send + Copy> QueuePublisher<T> {
         };
 
         Ok(QueuePublisher {
-            inner: Arc::new(Mutex::new(inner)?),
+            inner: Arc::new(Mutex::new(inner)),
         })
     }
 

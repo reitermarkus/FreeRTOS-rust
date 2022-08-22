@@ -72,7 +72,7 @@ where
             clients: Vec::new(),
             next_client_id: 1,
         };
-        let p = Arc::new(Mutex::new(p)?);
+        let p = Arc::new(Mutex::new(p));
         let p = Processor {
             queue: Arc::new(Queue::new(queue_size)?),
             inner: p,

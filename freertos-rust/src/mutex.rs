@@ -59,11 +59,11 @@ macro_rules! impl_mutex {
 
     impl<T> $name<T> {
       /// Create a new mutex with the given inner value.
-      pub const fn new(t: T) -> Result<Self, FreeRtosError> {
-        Ok(Self {
-            handle: LazyPtr::new(),
-            data: UnsafeCell::new(t),
-        })
+      pub const fn new(t: T) -> Self {
+        Self {
+          handle: LazyPtr::new(),
+          data: UnsafeCell::new(t),
+        }
       }
 
       /// Consume the mutex and return its inner value.
