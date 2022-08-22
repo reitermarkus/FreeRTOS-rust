@@ -6,6 +6,7 @@ use crate::shim::*;
 ///
 /// Should be dropped as the last thing inside a interrupt.
 #[repr(transparent)]
+#[must_use]
 pub struct InterruptContext {
     x_higher_priority_task_woken: FreeRtosBaseType,
 }
