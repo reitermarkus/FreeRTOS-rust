@@ -76,6 +76,8 @@ mod delays;
 #[cfg(feature = "interrupt")]
 mod isr;
 #[cfg(feature = "sync")]
+mod lazy_init;
+#[cfg(feature = "sync")]
 mod mutex;
 #[cfg(feature = "sync")]
 mod queue;

@@ -30,7 +30,7 @@ impl ComputeTaskBuilder for TaskBuilder {
             let task_status = status.clone();
             let task = self.start(move |_this_task| {
                 {
-                    let mut lock = task_result.lock(Duration::infinite()).unwrap();
+                    let mut lock = task_result.timed_lock(Duration::infinite()).unwrap();
                     let r = func();
                     *lock = Some(r);
                 }

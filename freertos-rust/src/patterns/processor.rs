@@ -99,7 +99,7 @@ where
         }
 
         let client_reply = {
-            let mut processor = self.inner.lock(max_wait)?;
+            let mut processor = self.inner.timed_lock(max_wait)?;
 
             let c = ClientWithReplyQueue {
                 id: processor.next_client_id,
@@ -134,7 +134,7 @@ where
         max_wait: D,
     ) -> Result<bool, FreeRtosError> {
         if let Some(client_id) = received_message.reply_to_client_id() {
-            let inner = self.inner.lock(max_wait)?;
+            let inner = self.inner.timed_lock(max_wait)?;
             if let Some(client) = inner
                 .clients
                 .iter()
@@ -293,7 +293,7 @@ where
     O: Copy,
 {
     fn drop(&mut self) {
-        if let Ok(mut p) = self.processor_inner.lock(Duration::ms(1000)) {
+        if let Ok(mut p) = self.processor_inner.timed_lock(Duration::ms(1000)) {
             p.remove_client_reply(&self);
         }
     }

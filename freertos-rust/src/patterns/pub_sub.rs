@@ -32,7 +32,7 @@ impl<T: Sized + Send + Copy> QueuePublisher<T> {
     pub fn send<D: DurationTicks>(&self, item: T, max_wait: D) -> usize {
         let mut sent_to = 0;
 
-        if let Ok(m) = self.inner.lock(max_wait) {
+        if let Ok(m) = self.inner.timed_lock(max_wait) {
             for subscriber in &m.subscribers {
                 if let Ok(_) = subscriber.queue.send(item, max_wait) {
                     sent_to += 1;
@@ -49,7 +49,7 @@ impl<T: Sized + Send + Copy> QueuePublisher<T> {
         max_size: usize,
         create_max_wait: D,
     ) -> Result<QueueSubscriber<T>, FreeRtosError> {
-        let mut inner = self.inner.lock(create_max_wait)?;
+        let mut inner = self.inner.timed_lock(create_max_wait)?;
 
         let queue = Queue::new(max_size)?;
 
@@ -79,7 +79,7 @@ impl<T: Sized + Copy> Clone for QueuePublisher<T> {
 
 impl<T: Sized + Copy> Drop for QueueSubscriber<T> {
     fn drop(&mut self) {
-        if let Ok(mut l) = self.inner.publisher.lock(Duration::infinite()) {
+        if let Ok(mut l) = self.inner.publisher.lock() {
             l.unsubscribe(&self.inner);
         }
     }

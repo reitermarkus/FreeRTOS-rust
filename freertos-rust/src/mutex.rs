@@ -1,209 +1,185 @@
+use core::ptr::NonNull;
+
 use crate::base::*;
+use crate::lazy_init::LazyInit;
+use crate::lazy_init::LazyPtr;
 use crate::prelude::v1::*;
 use crate::shim::*;
 use crate::units::*;
 
-pub type Mutex<T> = MutexImpl<T, MutexNormal>;
-pub type RecursiveMutex<T> = MutexImpl<T, MutexRecursive>;
-
-unsafe impl<T: Sync + Send, M> Send for MutexImpl<T, M> {}
-
-unsafe impl<T: Sync + Send, M> Sync for MutexImpl<T, M> {}
-
-/// Mutual exclusion access to a contained value. Can be recursive -
-/// the current owner of a lock can re-lock it.
-pub struct MutexImpl<T: ?Sized, M> {
-    mutex: M,
-    data: UnsafeCell<T>,
+/// A mutual exclusion primitive useful for protecting shared data.
+pub struct Mutex<T: ?Sized> {
+  handle: LazyPtr<Mutex<()>>,
+  data: UnsafeCell<T>,
 }
 
-impl<T: ?Sized, M> fmt::Debug for MutexImpl<T, M>
-where
-    M: MutexInnerImpl + fmt::Debug,
-{
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "Mutex address: {:?}", self.mutex)
+impl LazyInit for Mutex<()> {
+  fn init() -> NonNull<CVoid> {
+    unsafe {
+      let ptr = freertos_rs_create_mutex();
+      assert!(!ptr.is_null());
+      NonNull::new_unchecked(ptr)
     }
+  }
+
+  #[inline]
+  fn destroy(ptr: NonNull<CVoid>) {
+    unsafe { freertos_rs_delete_semaphore(ptr.as_ptr()) }
+  }
 }
 
-impl<T> MutexImpl<T, MutexNormal> {
-    /// Create a new mutex with the given inner value
-    pub fn new(t: T) -> Result<Self, FreeRtosError> {
-        Ok(MutexImpl {
-            mutex: MutexNormal::create()?,
+/// A mutual exclusion primitive useful for protecting shared data which can be locked recursively.
+///
+/// `RecursiveMutexGuard` does not give mutable references to the contained data,
+/// use a `RefCell` if you need this.
+pub struct RecursiveMutex<T: ?Sized> {
+  handle: LazyPtr<RecursiveMutex<()>>,
+  data: UnsafeCell<T>,
+}
+
+impl LazyInit for RecursiveMutex<()> {
+  fn init() -> NonNull<CVoid> {
+    unsafe {
+      let ptr = freertos_rs_create_recursive_mutex();
+      assert!(!ptr.is_null());
+      NonNull::new_unchecked(ptr)
+    }
+  }
+
+  #[inline]
+  fn destroy(ptr: NonNull<CVoid>) {
+    unsafe { freertos_rs_delete_semaphore(ptr.as_ptr()) }
+  }
+}
+
+macro_rules! impl_mutex {
+  ($name:ident, $guard:ident) => {
+    unsafe impl<T: Sync + Send> Send for $name<T> {}
+    unsafe impl<T: Sync + Send> Sync for $name<T> {}
+
+    impl<T> $name<T> {
+      /// Create a new mutex with the given inner value.
+      pub const fn new(t: T) -> Result<Self, FreeRtosError> {
+        Ok(Self {
+            handle: LazyPtr::new(),
             data: UnsafeCell::new(t),
         })
-    }
-}
+      }
 
-impl<T> MutexImpl<T, MutexRecursive> {
-    /// Create a new recursive mutex with the given inner value
-    pub fn new(t: T) -> Result<Self, FreeRtosError> {
-        Ok(MutexImpl {
-            mutex: MutexRecursive::create()?,
-            data: UnsafeCell::new(t),
-        })
-    }
-}
-
-impl<T, M> MutexImpl<T, M>
-where
-    M: MutexInnerImpl,
-{
-    /// Try to obtain a lock and mutable access to our inner value
-    pub fn lock<D: DurationTicks>(&self, max_wait: D) -> Result<MutexGuard<T, M>, FreeRtosError> {
-        self.mutex.take(max_wait)?;
-
-        Ok(MutexGuard {
-            __mutex: &self.mutex,
-            __data: &self.data,
-        })
+      /// Consume the mutex and return its inner value.
+      pub fn into_inner(self) -> T {
+        self.data.into_inner()
+      }
     }
 
-    /// Consume the mutex and return its inner value
-    pub fn into_inner(self) -> T {
-        // Manually deconstruct the structure, because it implements Drop
-        // and we cannot move the data value out of it.
-        unsafe {
-            let (mutex, data) = {
-                let Self {
-                    ref mutex,
-                    ref data,
-                } = self;
-                (ptr::read(mutex), ptr::read(data))
-            };
-            mem::forget(self);
+    impl<T: ?Sized> $name<T> {
+      pub fn lock(&self) -> Result<$guard<'_, T>, FreeRtosError> {
+        self.timed_lock(Duration::infinite())
+      }
 
-            drop(mutex);
+      pub fn try_lock(&self) -> Result<$guard<'_, T>, FreeRtosError> {
+        self.timed_lock(Duration::zero())
+      }
+    }
 
-            data.into_inner()
+    impl<T: ?Sized + fmt::Debug> fmt::Debug for $name<T> {
+        fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+          let mut d = f.debug_struct(stringify!($name));
+
+          d.field("handle", &self.handle.as_ptr());
+
+          match self.try_lock() {
+            Ok(guard) => d.field("data", &&*guard),
+            Err(_) => d.field("data", &format_args!("<locked>")),
+          };
+
+          d.finish()
         }
     }
+  };
 }
 
-/// Holds the mutex until we are dropped
-pub struct MutexGuard<'a, T: ?Sized + 'a, M: 'a>
-where
-    M: MutexInnerImpl,
-{
-    __mutex: &'a M,
-    __data: &'a UnsafeCell<T>,
+impl_mutex!(Mutex, MutexGuard);
+impl_mutex!(RecursiveMutex, RecursiveMutexGuard);
+
+impl<T: ?Sized> Mutex<T> {
+  pub fn timed_lock<D: DurationTicks>(&self, max_wait: D) -> Result<MutexGuard<'_, T>, FreeRtosError> {
+    let res = unsafe {
+      freertos_rs_take_mutex(self.handle.as_ptr(), max_wait.to_ticks())
+    };
+
+    if res != 0 {
+      return Err(FreeRtosError::MutexTimeout);
+    }
+
+    Ok(MutexGuard { lock: self })
+  }
 }
 
-impl<'mutex, T: ?Sized, M> Deref for MutexGuard<'mutex, T, M>
-where
-    M: MutexInnerImpl,
-{
-    type Target = T;
+impl<T: ?Sized> RecursiveMutex<T> {
+  pub fn timed_lock<D: DurationTicks>(&self, max_wait: D) -> Result<RecursiveMutexGuard<'_, T>, FreeRtosError> {
+    let res = unsafe {
+      freertos_rs_take_recursive_mutex(self.handle.as_ptr(), max_wait.to_ticks())
+    };
 
-    fn deref<'a>(&'a self) -> &'a T {
-        unsafe { &*self.__data.get() }
+    if res != 0 {
+      return Err(FreeRtosError::MutexTimeout);
     }
+
+    Ok(RecursiveMutexGuard { lock: self })
+  }
 }
 
-impl<'mutex, T: ?Sized, M> DerefMut for MutexGuard<'mutex, T, M>
-where
-    M: MutexInnerImpl,
-{
-    fn deref_mut<'a>(&'a mut self) -> &'a mut T {
-        unsafe { &mut *self.__data.get() }
-    }
+/// An RAII implementation of a “scoped lock” of a mutex. When this structure is
+/// dropped (falls out of scope), the lock will be unlocked.
+///
+/// The data protected by the mutex can be accessed through this
+/// guard via its `Deref` and `DerefMut` implementations.
+pub struct MutexGuard<'m, T: ?Sized> {
+    lock: &'m Mutex<T>,
 }
 
-impl<'a, T: ?Sized, M> Drop for MutexGuard<'a, T, M>
-where
-    M: MutexInnerImpl,
-{
-    fn drop(&mut self) {
-        self.__mutex.give();
-    }
+impl<T: ?Sized> Deref for MutexGuard<'_, T> {
+  type Target = T;
+
+  fn deref(&self) -> &T {
+      unsafe { &*self.lock.data.get() }
+  }
 }
 
-pub trait MutexInnerImpl
-where
-    Self: Sized,
-{
-    fn create() -> Result<Self, FreeRtosError>;
-    fn take<D: DurationTicks>(&self, max_wait: D) -> Result<(), FreeRtosError>;
-    fn give(&self);
+impl<T: ?Sized> DerefMut for MutexGuard<'_, T> {
+  fn deref_mut(&mut self) -> &mut T {
+      unsafe { &mut *self.lock.data.get() }
+  }
 }
 
-pub struct MutexNormal(FreeRtosSemaphoreHandle);
-
-impl MutexInnerImpl for MutexNormal {
-    fn create() -> Result<Self, FreeRtosError> {
-        let m = unsafe { freertos_rs_create_mutex() };
-        if m.is_null() {
-            return Err(FreeRtosError::OutOfMemory);
-        }
-        Ok(MutexNormal(m))
-    }
-
-    fn take<D: DurationTicks>(&self, max_wait: D) -> Result<(), FreeRtosError> {
-        let res = unsafe { freertos_rs_take_mutex(self.0, max_wait.to_ticks()) };
-
-        if res != 0 {
-            return Err(FreeRtosError::MutexTimeout);
-        }
-
-        Ok(())
-    }
-
-    fn give(&self) {
-        unsafe {
-            freertos_rs_give_mutex(self.0);
-        }
-    }
+impl<T: ?Sized> Drop for MutexGuard<'_, T> {
+  #[inline]
+  fn drop(&mut self) {
+    unsafe { freertos_rs_give_mutex(self.lock.handle.as_ptr()); }
+  }
 }
 
-impl Drop for MutexNormal {
-    fn drop(&mut self) {
-        unsafe { freertos_rs_delete_semaphore(self.0) }
-    }
+/// An RAII implementation of a “scoped lock” of a recursive mutex. When this structure is
+/// dropped (falls out of scope), the lock will be unlocked.
+///
+/// The data protected by the mutex can be accessed through this
+/// guard via its `Deref` implementations.
+pub struct RecursiveMutexGuard<'m, T: ?Sized> {
+  lock: &'m RecursiveMutex<T>,
 }
 
-impl fmt::Debug for MutexNormal {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{:?}", self.0)
-    }
+impl<T: ?Sized> Deref for RecursiveMutexGuard<'_, T> {
+  type Target = T;
+
+  fn deref(&self) -> &T {
+      unsafe { &*self.lock.data.get() }
+  }
 }
 
-pub struct MutexRecursive(FreeRtosSemaphoreHandle);
-
-impl MutexInnerImpl for MutexRecursive {
-    fn create() -> Result<Self, FreeRtosError> {
-        let m = unsafe { freertos_rs_create_recursive_mutex() };
-        if m.is_null() {
-            return Err(FreeRtosError::OutOfMemory);
-        }
-        Ok(MutexRecursive(m))
-    }
-
-    fn take<D: DurationTicks>(&self, max_wait: D) -> Result<(), FreeRtosError> {
-        let res = unsafe { freertos_rs_take_recursive_mutex(self.0, max_wait.to_ticks()) };
-
-        if res != 0 {
-            return Err(FreeRtosError::MutexTimeout);
-        }
-
-        Ok(())
-    }
-
-    fn give(&self) {
-        unsafe {
-            freertos_rs_give_recursive_mutex(self.0);
-        }
-    }
-}
-
-impl Drop for MutexRecursive {
-    fn drop(&mut self) {
-        unsafe { freertos_rs_delete_semaphore(self.0) }
-    }
-}
-
-impl fmt::Debug for MutexRecursive {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{:?}", self.0)
-    }
+impl<T: ?Sized> Drop for RecursiveMutexGuard<'_, T> {
+  #[inline]
+  fn drop(&mut self) {
+    unsafe { freertos_rs_give_recursive_mutex(self.lock.handle.as_ptr()); }
+  }
 }
