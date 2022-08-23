@@ -120,18 +120,18 @@ UBaseType_t freertos_rs_get_number_of_tasks() {
 }
 
 #if (configUSE_RECURSIVE_MUTEXES == 1)
-QueueHandle_t freertos_rs_create_recursive_mutex() {
+QueueHandle_t freertos_rs_semaphore_create_recursive_mutex() {
 	return xSemaphoreCreateRecursiveMutex();
 }
 
-UBaseType_t freertos_rs_take_recursive_mutex(QueueHandle_t mutex, UBaseType_t max) {
+UBaseType_t freertos_rs_semaphore_take_recursive(QueueHandle_t mutex, UBaseType_t max) {
 	if (xSemaphoreTakeRecursive(mutex, max) == pdTRUE) {
 		return 0;
 	}
 
 	return 1;
 }
-UBaseType_t freertos_rs_give_recursive_mutex(QueueHandle_t mutex) {
+UBaseType_t freertos_rs_semaphore_give_recursive(QueueHandle_t mutex) {
 	if (xSemaphoreGiveRecursive(mutex) == pdTRUE) {
 		return 0;
 	} else {
@@ -140,31 +140,31 @@ UBaseType_t freertos_rs_give_recursive_mutex(QueueHandle_t mutex) {
 }
 #endif
 
-QueueHandle_t freertos_rs_create_mutex() {
+QueueHandle_t freertos_rs_semaphore_create_mutex() {
 	return xSemaphoreCreateMutex();
 }
 
-QueueHandle_t freertos_rs_create_binary_semaphore() {
+QueueHandle_t freertos_rs_semaphore_create_binary() {
 	return xSemaphoreCreateBinary();
 }
 
-QueueHandle_t freertos_rs_create_binary_semaphore_static(StaticSemaphore_t* pxStaticSemaphore) {
+QueueHandle_t freertos_rs_semaphore_create_binary_static(StaticSemaphore_t* pxStaticSemaphore) {
 	return xSemaphoreCreateBinaryStatic(pxStaticSemaphore);
 }
 
-QueueHandle_t freertos_rs_create_counting_semaphore(UBaseType_t max, UBaseType_t initial) {
+QueueHandle_t freertos_rs_semaphore_create_counting(UBaseType_t max, UBaseType_t initial) {
 	return xSemaphoreCreateCounting(max, initial);
 }
 
-QueueHandle_t freertos_rs_create_counting_semaphore_static(UBaseType_t max, UBaseType_t initial, StaticSemaphore_t* pxSemaphoreBuffer) {
+QueueHandle_t freertos_rs_semaphore_create_counting_static(UBaseType_t max, UBaseType_t initial, StaticSemaphore_t* pxSemaphoreBuffer) {
 	return xSemaphoreCreateCountingStatic(max, initial, pxSemaphoreBuffer);
 }
 
-void freertos_rs_delete_semaphore(QueueHandle_t semaphore) {
+void freertos_rs_semaphore_delete(QueueHandle_t semaphore) {
 	vSemaphoreDelete(semaphore);
 }
 
-UBaseType_t freertos_rs_take_mutex(QueueHandle_t mutex, UBaseType_t max) {
+UBaseType_t freertos_rs_semaphore_take(QueueHandle_t mutex, UBaseType_t max) {
 	if (xSemaphoreTake(mutex, max) == pdTRUE) {
 		return 0;
 	}
@@ -172,7 +172,7 @@ UBaseType_t freertos_rs_take_mutex(QueueHandle_t mutex, UBaseType_t max) {
 	return 1;
 }
 
-UBaseType_t freertos_rs_give_mutex(QueueHandle_t mutex) {
+UBaseType_t freertos_rs_semaphore_give(QueueHandle_t mutex) {
 	if (xSemaphoreGive(mutex) == pdTRUE) {
 		return 0;
 	}
@@ -188,14 +188,13 @@ UBaseType_t freertos_rs_take_semaphore_isr(QueueHandle_t semaphore, BaseType_t* 
 	return 1;
 }
 
-UBaseType_t freertos_rs_give_semaphore_isr(QueueHandle_t semaphore, BaseType_t* xHigherPriorityTaskWoken) {
+UBaseType_t freertos_rs_semaphore_give_from_isr(QueueHandle_t semaphore, BaseType_t* xHigherPriorityTaskWoken) {
 	if (xSemaphoreGiveFromISR(semaphore, xHigherPriorityTaskWoken) == pdTRUE) {
 		return 0;
 	}
 
 	return 1;
 }
-
 
 UBaseType_t freertos_rs_spawn_task(TaskFunction_t entry_point, void* pvParameters, const char * const name, uint8_t name_len, uint16_t stack_size, UBaseType_t priority, TaskHandle_t *const task_handle) {
 	char c_name[configMAX_TASK_NAME_LEN] = {0};

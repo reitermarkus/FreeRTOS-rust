@@ -4,7 +4,7 @@ use core::sync::atomic::{AtomicPtr, Ordering::*};
 
 use crate::CVoid;
 
-pub(crate) trait LazyInit {
+pub trait LazyInit {
   fn init() -> NonNull<CVoid>;
 
   fn cancel_init(ptr: NonNull<CVoid>) {
@@ -14,7 +14,7 @@ pub(crate) trait LazyInit {
   fn destroy(ptr: NonNull<CVoid>);
 }
 
-pub(crate) struct LazyPtr<T: LazyInit> {
+pub struct LazyPtr<T: LazyInit> {
   ptr: AtomicPtr<CVoid>,
   _type: PhantomData<T>,
 }
@@ -23,6 +23,11 @@ impl<T: LazyInit> LazyPtr<T> {
   #[inline]
   pub const fn new() -> Self {
     Self { ptr: AtomicPtr::new(ptr::null_mut()), _type: PhantomData }
+  }
+
+  #[inline]
+  pub const unsafe fn new_unchecked(ptr: *mut CVoid) -> Self {
+    Self { ptr: AtomicPtr::new(ptr), _type: PhantomData }
   }
 
   #[inline]

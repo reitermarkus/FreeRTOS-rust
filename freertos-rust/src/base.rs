@@ -4,7 +4,6 @@ pub enum FreeRtosError {
     OutOfMemory,
     QueueSendTimeout,
     QueueReceiveTimeout,
-    MutexTimeout,
     Timeout,
     QueueFull,
     StringConversionError,

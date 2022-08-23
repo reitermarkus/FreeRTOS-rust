@@ -4,7 +4,7 @@ use crate::shim::*;
 /// Keep track of whether we need to yield the execution to a different
 /// task at the end of the interrupt.
 ///
-/// Should be dropped as the last thing inside a interrupt.
+/// Should be dropped as the last thing inside an interrupt.
 #[repr(transparent)]
 #[must_use]
 pub struct InterruptContext {

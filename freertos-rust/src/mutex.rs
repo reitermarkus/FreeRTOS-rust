@@ -16,7 +16,7 @@ pub struct Mutex<T: ?Sized> {
 impl LazyInit for Mutex<()> {
   fn init() -> NonNull<CVoid> {
     unsafe {
-      let ptr = freertos_rs_create_mutex();
+      let ptr = freertos_rs_semaphore_create_mutex();
       assert!(!ptr.is_null());
       NonNull::new_unchecked(ptr)
     }
@@ -24,7 +24,7 @@ impl LazyInit for Mutex<()> {
 
   #[inline]
   fn destroy(ptr: NonNull<CVoid>) {
-    unsafe { freertos_rs_delete_semaphore(ptr.as_ptr()) }
+    unsafe { freertos_rs_semaphore_delete(ptr.as_ptr()) }
   }
 }
 
@@ -40,7 +40,7 @@ pub struct RecursiveMutex<T: ?Sized> {
 impl LazyInit for RecursiveMutex<()> {
   fn init() -> NonNull<CVoid> {
     unsafe {
-      let ptr = freertos_rs_create_recursive_mutex();
+      let ptr = freertos_rs_semaphore_create_recursive_mutex();
       assert!(!ptr.is_null());
       NonNull::new_unchecked(ptr)
     }
@@ -48,7 +48,7 @@ impl LazyInit for RecursiveMutex<()> {
 
   #[inline]
   fn destroy(ptr: NonNull<CVoid>) {
-    unsafe { freertos_rs_delete_semaphore(ptr.as_ptr()) }
+    unsafe { freertos_rs_semaphore_delete(ptr.as_ptr()) }
   }
 }
 
@@ -105,11 +105,11 @@ impl_mutex!(RecursiveMutex, RecursiveMutexGuard);
 impl<T: ?Sized> Mutex<T> {
   pub fn timed_lock<D: DurationTicks>(&self, max_wait: D) -> Result<MutexGuard<'_, T>, FreeRtosError> {
     let res = unsafe {
-      freertos_rs_take_mutex(self.handle.as_ptr(), max_wait.to_ticks())
+      freertos_rs_semaphore_take(self.handle.as_ptr(), max_wait.to_ticks())
     };
 
     if res != 0 {
-      return Err(FreeRtosError::MutexTimeout);
+      return Err(FreeRtosError::Timeout);
     }
 
     Ok(MutexGuard { lock: self, _not_send_and_sync: PhantomData })
@@ -119,11 +119,11 @@ impl<T: ?Sized> Mutex<T> {
 impl<T: ?Sized> RecursiveMutex<T> {
   pub fn timed_lock<D: DurationTicks>(&self, max_wait: D) -> Result<RecursiveMutexGuard<'_, T>, FreeRtosError> {
     let res = unsafe {
-      freertos_rs_take_recursive_mutex(self.handle.as_ptr(), max_wait.to_ticks())
+      freertos_rs_semaphore_take_recursive(self.handle.as_ptr(), max_wait.to_ticks())
     };
 
     if res != 0 {
-      return Err(FreeRtosError::MutexTimeout);
+      return Err(FreeRtosError::Timeout);
     }
 
     Ok(RecursiveMutexGuard { lock: self, _not_send_and_sync: PhantomData })
@@ -163,7 +163,7 @@ impl<T: ?Sized> DerefMut for MutexGuard<'_, T> {
 impl<T: ?Sized> Drop for MutexGuard<'_, T> {
   #[inline]
   fn drop(&mut self) {
-    unsafe { freertos_rs_give_mutex(self.lock.handle.as_ptr()); }
+    unsafe { freertos_rs_semaphore_give(self.lock.handle.as_ptr()); }
   }
 }
 
@@ -187,13 +187,13 @@ impl<T: ?Sized> Deref for RecursiveMutexGuard<'_, T> {
   type Target = T;
 
   fn deref(&self) -> &T {
-      unsafe { &*self.lock.data.get() }
+    unsafe { &*self.lock.data.get() }
   }
 }
 
 impl<T: ?Sized> Drop for RecursiveMutexGuard<'_, T> {
   #[inline]
   fn drop(&mut self) {
-    unsafe { freertos_rs_give_recursive_mutex(self.lock.handle.as_ptr()); }
+    unsafe { freertos_rs_semaphore_give_recursive(self.lock.handle.as_ptr()); }
   }
 }
