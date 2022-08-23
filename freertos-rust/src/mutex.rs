@@ -54,8 +54,8 @@ impl LazyInit for RecursiveMutex<()> {
 
 macro_rules! impl_mutex {
   ($name:ident, $guard:ident) => {
-    unsafe impl<T: Sync + Send> Send for $name<T> {}
-    unsafe impl<T: Sync + Send> Sync for $name<T> {}
+    unsafe impl<T: ?Sized + Send> Send for $name<T> {}
+    unsafe impl<T: ?Sized + Send> Sync for $name<T> {}
 
     impl<T> $name<T> {
       /// Create a new mutex with the given inner value.
@@ -112,7 +112,7 @@ impl<T: ?Sized> Mutex<T> {
       return Err(FreeRtosError::MutexTimeout);
     }
 
-    Ok(MutexGuard { lock: self })
+    Ok(MutexGuard { lock: self, _not_send_and_sync: PhantomData })
   }
 }
 
@@ -126,7 +126,7 @@ impl<T: ?Sized> RecursiveMutex<T> {
       return Err(FreeRtosError::MutexTimeout);
     }
 
-    Ok(RecursiveMutexGuard { lock: self })
+    Ok(RecursiveMutexGuard { lock: self, _not_send_and_sync: PhantomData })
   }
 }
 
@@ -135,9 +135,16 @@ impl<T: ?Sized> RecursiveMutex<T> {
 ///
 /// The data protected by the mutex can be accessed through this
 /// guard via its `Deref` and `DerefMut` implementations.
+#[must_use = "if unused the `Mutex` will unlock immediately"]
+// #[must_not_suspend = "holding a `Mutex` across suspend points can cause deadlocks, delays, \
+//                       and cause Futures to not implement `Send`"]
+#[clippy::has_significant_drop]
 pub struct MutexGuard<'m, T: ?Sized> {
     lock: &'m Mutex<T>,
+    _not_send_and_sync: PhantomData<*const ()>,
 }
+
+unsafe impl<T: ?Sized + Sync> Sync for MutexGuard<'_, T> {}
 
 impl<T: ?Sized> Deref for MutexGuard<'_, T> {
   type Target = T;
@@ -165,9 +172,16 @@ impl<T: ?Sized> Drop for MutexGuard<'_, T> {
 ///
 /// The data protected by the mutex can be accessed through this
 /// guard via its `Deref` implementations.
+#[must_use = "if unused the `RecursiveMutex` will unlock immediately"]
+// #[must_not_suspend = "holding a `RecursiveMutex` across suspend points can cause deadlocks, delays, \
+//                       and cause Futures to not implement `Send`"]
+#[clippy::has_significant_drop]
 pub struct RecursiveMutexGuard<'m, T: ?Sized> {
   lock: &'m RecursiveMutex<T>,
+  _not_send_and_sync: PhantomData<*const ()>,
 }
+
+unsafe impl<T: ?Sized + Sync> Sync for RecursiveMutexGuard<'_, T> {}
 
 impl<T: ?Sized> Deref for RecursiveMutexGuard<'_, T> {
   type Target = T;
