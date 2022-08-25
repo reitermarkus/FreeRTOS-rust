@@ -37,13 +37,13 @@ pub enum TaskNotification {
 }
 
 impl TaskNotification {
-    fn to_freertos(&self) -> (u32, u8) {
+    fn to_freertos(&self) -> (UBaseType_t, eNotifyAction) {
         match *self {
-            TaskNotification::NoAction => (0, 0),
-            TaskNotification::SetBits(v) => (v, 1),
-            TaskNotification::Increment => (0, 2),
-            TaskNotification::OverwriteValue(v) => (v, 3),
-            TaskNotification::SetValue(v) => (v, 4),
+            TaskNotification::NoAction => (0, eNotifyAction_eNoAction),
+            TaskNotification::SetBits(v) => (v, eNotifyAction_eSetBits),
+            TaskNotification::Increment => (0, eNotifyAction_eIncrement),
+            TaskNotification::OverwriteValue(v) => (v, eNotifyAction_eSetValueWithOverwrite),
+            TaskNotification::SetValue(v) => (v, eNotifyAction_eSetValueWithoutOverwrite),
         }
     }
 }
@@ -114,7 +114,7 @@ impl Task {
       Self { handle: NonNull::new_unchecked(handle) }
     }
 
-    pub unsafe fn as_raw_handle(&self) -> FreeRtosTaskHandle {
+    pub fn as_raw_handle(&self) -> FreeRtosTaskHandle {
       self.handle.as_ptr()
     }
 
@@ -229,31 +229,63 @@ impl Task {
         self.notify(TaskNotification::OverwriteValue(val))
     }
 
-    /// Notify this task.
-    pub fn notify(&self, notification: TaskNotification) {
-        unsafe {
-            let n = notification.to_freertos();
-            freertos_rs_task_notify(self.handle.as_ptr(), n.0, n.1);
-        }
-    }
-
     /// Take the notification and either clear the notification value or decrement it by one.
     pub fn take_notification<D: DurationTicks>(clear: bool, wait_for: D) -> u32 {
-        unsafe {
-            freertos_rs_task_notify_take(if clear { 1 } else { 0 }, wait_for.to_ticks())
-        }
+      unsafe {
+          freertos_rs_task_notify_take(if clear { 1 } else { 0 }, wait_for.to_ticks())
+      }
+    }
+
+    /// Notify this task.
+    pub fn notify(&self, notification: TaskNotification) {
+      unsafe {
+          let n = notification.to_freertos();
+          freertos_rs_task_notify(self.handle.as_ptr(), n.0, n.1);
+      }
+    }
+
+    /// Notify this task with the given index.
+    pub fn notify_indexed(&self, index: u32, notification: TaskNotification) {
+      unsafe {
+          let n = notification.to_freertos();
+          freertos_rs_task_notify_indexed(self.handle.as_ptr(), index, n.0, n.1);
+      }
     }
 
     /// Notify this task from an interrupt.
     pub fn notify_from_isr(
         &self,
-        context: &mut InterruptContext,
         notification: TaskNotification,
+        context: &mut InterruptContext,
     ) -> Result<(), FreeRtosError> {
         unsafe {
             let n = notification.to_freertos();
-            let t = freertos_rs_task_notify_isr(
+            let t = freertos_rs_task_notify_from_isr(
                 self.handle.as_ptr(),
+                n.0,
+                n.1,
+                context.x_higher_priority_task_woken(),
+            );
+            if t != 0 {
+                Err(FreeRtosError::QueueFull)
+            } else {
+                Ok(())
+            }
+        }
+    }
+
+    /// Notify this task from an interrupt with the given index.
+    pub fn notify_indexed_from_isr(
+      &self,
+      index: u32,
+      notification: TaskNotification,
+      context: &mut InterruptContext,
+    ) -> Result<(), FreeRtosError> {
+        unsafe {
+            let n = notification.to_freertos();
+            let t = freertos_rs_task_notify_indexed_from_isr(
+                self.handle.as_ptr(),
+                index,
                 n.0,
                 n.1,
                 context.x_higher_priority_task_woken(),

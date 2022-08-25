@@ -295,24 +295,7 @@ BaseType_t freertos_rs_task_notify_wait(uint32_t ulBitsToClearOnEntry, uint32_t 
 	return 1;
 }
 
-eNotifyAction freertos_rs_task_notify_action(uint8_t action) {
-	switch (action) {
-		case 1:
-			return eSetBits;
-		case 2:
-			return eIncrement;
-		case 3:
-			return eSetValueWithOverwrite;
-		case 4:
-			return eSetValueWithoutOverwrite;
-		default:
-			return eNoAction;
-	}
-}
-
-BaseType_t freertos_rs_task_notify(TaskHandle_t task, uint32_t value, uint8_t action) {
-	eNotifyAction eAction = freertos_rs_task_notify_action(action);
-
+BaseType_t freertos_rs_task_notify(TaskHandle_t task, uint32_t value, eNotifyAction eAction) {
 	BaseType_t v = xTaskNotify(task, value, eAction);
 	if (v != pdPASS) {
 		return 1;
@@ -320,10 +303,24 @@ BaseType_t freertos_rs_task_notify(TaskHandle_t task, uint32_t value, uint8_t ac
 	return 0;
 }
 
-BaseType_t freertos_rs_task_notify_isr(TaskHandle_t task, uint32_t value, uint8_t action, BaseType_t* xHigherPriorityTaskWoken) {
-	eNotifyAction eAction = freertos_rs_task_notify_action(action);
+BaseType_t freertos_rs_task_notify_indexed(TaskHandle_t task, UBaseType_t index, uint32_t value, eNotifyAction eAction) {
+	BaseType_t v = xTaskNotifyIndexed(task, index, value, eAction);
+	if (v != pdPASS) {
+		return 1;
+	}
+	return 0;
+}
 
+BaseType_t freertos_rs_task_notify_from_isr(TaskHandle_t task, uint32_t value, eNotifyAction eAction, BaseType_t* xHigherPriorityTaskWoken) {
 	BaseType_t v = xTaskNotifyFromISR(task, value, eAction, xHigherPriorityTaskWoken);
+	if (v != pdPASS) {
+		return 1;
+	}
+	return 0;
+}
+
+BaseType_t freertos_rs_task_notify_indexed_from_isr(TaskHandle_t task, UBaseType_t index, uint32_t value, eNotifyAction eAction, BaseType_t* xHigherPriorityTaskWoken) {
+	BaseType_t v = xTaskNotifyIndexedFromISR(task, index, value, eAction, xHigherPriorityTaskWoken);
 	if (v != pdPASS) {
 		return 1;
 	}
