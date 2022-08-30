@@ -11,6 +11,7 @@ keywords = ["FreeRTOS", "embedded", "demo", "library"]
 license = "MIT"
 readme = "README.md"
 repository = "https://github.com/lobaro/FreeRTOS-rust"
+build = "build/mod.rs"
 links = "freertos"
 
 [lib]

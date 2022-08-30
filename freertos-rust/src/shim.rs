@@ -1,10 +1,14 @@
 #![allow(non_snake_case)]
 
-use core::{mem::{self, size_of}, ptr};
+use core::mem::MaybeUninit;
 
-use const_zero::const_zero;
+mod bindings {
+  #![allow(unused)]
 
-include!(concat!(env!("OUT_DIR"), "/shim.rs"));
+  include!(concat!(env!("OUT_DIR"), "/shim.rs"));
+}
+
+pub use bindings::*;
 
 #[no_mangle]
 unsafe extern "C" fn vApplicationGetIdleTaskMemory(
@@ -12,18 +16,18 @@ unsafe extern "C" fn vApplicationGetIdleTaskMemory(
   stack_buffer: *mut *mut StackType_t,
   stack_size: *mut u32,
 ) {
-  static mut IDLE_TASK_TCB: StaticTask_t = unsafe { const_zero!(StaticTask_t) };
-  static mut IDLE_TASK_STACK: [StackType_t; TASK_MINIMAL_STACK_SIZE as usize] = [0; TASK_MINIMAL_STACK_SIZE as usize];
+  static mut IDLE_TASK_TCB: MaybeUninit<StaticTask_t> = MaybeUninit::uninit();
+  static mut IDLE_TASK_STACK: [MaybeUninit<StackType_t>; configMINIMAL_STACK_SIZE as usize] = MaybeUninit::uninit_array();
 
   // Pass out a pointer to the `StaticTask_t` structure in which the Idle task's state will be stored.
-  *tcb_buffer = ptr::addr_of_mut!(IDLE_TASK_TCB);
+  *tcb_buffer = IDLE_TASK_TCB.as_mut_ptr();
 
   // Pass out the array that will be used as the Idle task's stack.
-  *stack_buffer = IDLE_TASK_STACK.as_mut_ptr();
+  *stack_buffer = MaybeUninit::slice_as_mut_ptr(&mut IDLE_TASK_STACK);
 
   // Pass out the size of the array pointed to by `stack_buffer`. Note that the array is necessarily
-  // of type `StackType_t`, i.e. `TASK_MINIMAL_STACK_SIZE` is specified in words, not bytes.
-  *stack_size = u32::from(TASK_MINIMAL_STACK_SIZE);
+  // of type `StackType_t`, i.e. `configMINIMAL_STACK_SIZE` is specified in words, not bytes.
+  *stack_size = configMINIMAL_STACK_SIZE.into();
 }
 
 #[no_mangle]
@@ -32,16 +36,16 @@ unsafe extern "C" fn vApplicationGetTimerTaskMemory(
   stack_buffer: *mut *mut StackType_t,
   stack_size: *mut u32,
 ) {
-  static mut TIMER_TASK_TCB: StaticTask_t = unsafe { const_zero!(StaticTask_t) };
-  static mut TIMER_TASK_STACK: [StackType_t; TIMER_TASK_STACK_SIZE as usize] = [0; TIMER_TASK_STACK_SIZE as usize];
+  static mut TIMER_TASK_TCB: MaybeUninit<StaticTask_t> = MaybeUninit::uninit();
+  static mut TIMER_TASK_STACK: [MaybeUninit<StackType_t>; configTIMER_TASK_STACK_DEPTH as usize] = MaybeUninit::uninit_array();
 
   // Pass out a pointer to the `StaticTask_t` structure in which the Timer task's state will be stored.
-  *tcb_buffer = ptr::addr_of_mut!(TIMER_TASK_TCB);
+  *tcb_buffer = TIMER_TASK_TCB.as_mut_ptr();
 
   // Pass out the array that will be used as the Timer task's stack.
-  *stack_buffer = TIMER_TASK_STACK.as_mut_ptr();
+  *stack_buffer = MaybeUninit::slice_as_mut_ptr(&mut TIMER_TASK_STACK);
 
   // Pass out the size of the array pointed to by `stack_buffer`. Note that the array is necessarily
-  // of type `StackType_t`, i.e. `TIMER_TASK_STACK_SIZE` is specified in words, not bytes.
-  *stack_size = u32::from(TIMER_TASK_STACK_SIZE);
+  // of type `StackType_t`, i.e. `configTIMER_TASK_STACK_DEPTH` is specified in words, not bytes.
+  *stack_size = configTIMER_TASK_STACK_DEPTH.into();
 }

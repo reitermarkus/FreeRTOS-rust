@@ -103,7 +103,7 @@ impl<const MAX: u32, const INITIAL: u32> Semaphore<Counting<MAX, INITIAL>> {
   }
 
   /// Create a new counting semaphore
-  pub const fn new_counting(max: u32, initial: u32) -> Self {
+  pub const fn new_counting() -> Self {
     assert!(INITIAL <= MAX);
 
     Self { handle: LazyPtr::new() }

@@ -64,7 +64,7 @@ impl<D: DurationTicks> TimerBuilder<D> {
 }
 
 impl Timer {
-    pub const STACK_SIZE: u16 = TIMER_TASK_STACK_SIZE;
+    pub const STACK_SIZE: u16 = configTIMER_TASK_STACK_DEPTH;
 
     /// Create a new timer builder.
     pub fn new<D: DurationTicks>(period: D) -> TimerBuilder<D> {

@@ -4,8 +4,80 @@
 #include "queue.h"
 #include "semphr.h"
 
-const uint16_t TASK_MINIMAL_STACK_SIZE = configMINIMAL_STACK_SIZE;
-const uint16_t TIMER_TASK_STACK_SIZE = configTIMER_TASK_STACK_DEPTH;
+// Fix constants for bindgen.
+
+static const uint16_t configMINIMAL_STACK_SIZE_TMP = configMINIMAL_STACK_SIZE;
+#undef configMINIMAL_STACK_SIZE
+const uint16_t configMINIMAL_STACK_SIZE = configMINIMAL_STACK_SIZE_TMP;
+
+static const uint16_t configTIMER_TASK_STACK_DEPTH_TMP = configTIMER_TASK_STACK_DEPTH;
+#undef configTIMER_TASK_STACK_DEPTH
+const uint16_t configTIMER_TASK_STACK_DEPTH = configTIMER_TASK_STACK_DEPTH_TMP;
+
+static const BaseType_t queueSEND_TO_BACK_TMP = queueSEND_TO_BACK;
+#undef queueSEND_TO_BACK
+const BaseType_t queueSEND_TO_BACK = queueSEND_TO_BACK_TMP;
+
+static const BaseType_t queueSEND_TO_FRONT_TMP = queueSEND_TO_FRONT;
+#undef queueSEND_TO_FRONT
+const BaseType_t queueSEND_TO_FRONT = queueSEND_TO_FRONT_TMP;
+
+static const TickType_t semGIVE_BLOCK_TIME_TMP = semGIVE_BLOCK_TIME;
+#undef semGIVE_BLOCK_TIME
+const TickType_t semGIVE_BLOCK_TIME = semGIVE_BLOCK_TIME_TMP;
+
+static const uint8_t queueQUEUE_TYPE_BASE_TMP = queueQUEUE_TYPE_BASE;
+#undef queueQUEUE_TYPE_BASE
+const uint8_t queueQUEUE_TYPE_BASE = queueQUEUE_TYPE_BASE_TMP;
+
+static const uint8_t queueQUEUE_TYPE_BINARY_SEMAPHORE_TMP = queueQUEUE_TYPE_BINARY_SEMAPHORE;
+#undef queueQUEUE_TYPE_BINARY_SEMAPHORE
+const uint8_t queueQUEUE_TYPE_BINARY_SEMAPHORE = queueQUEUE_TYPE_BINARY_SEMAPHORE_TMP;
+
+static const uint8_t queueQUEUE_TYPE_MUTEX_TMP = queueQUEUE_TYPE_MUTEX;
+#undef queueQUEUE_TYPE_MUTEX
+const uint8_t queueQUEUE_TYPE_MUTEX = queueQUEUE_TYPE_MUTEX_TMP;
+
+static const uint8_t queueQUEUE_TYPE_RECURSIVE_MUTEX_TMP = queueQUEUE_TYPE_RECURSIVE_MUTEX;
+#undef queueQUEUE_TYPE_RECURSIVE_MUTEX
+const uint8_t queueQUEUE_TYPE_RECURSIVE_MUTEX = queueQUEUE_TYPE_RECURSIVE_MUTEX_TMP;
+
+static const UBaseType_t semSEMAPHORE_QUEUE_ITEM_LENGTH_TMP = semSEMAPHORE_QUEUE_ITEM_LENGTH;
+#undef semSEMAPHORE_QUEUE_ITEM_LENGTH
+const UBaseType_t semSEMAPHORE_QUEUE_ITEM_LENGTH = semSEMAPHORE_QUEUE_ITEM_LENGTH_TMP;
+
+static const BaseType_t queueOVERWRITE_TMP = queueOVERWRITE;
+#undef queueOVERWRITE
+const BaseType_t queueOVERWRITE = queueOVERWRITE_TMP;
+
+static const BaseType_t pdFALSE_TMP = pdFALSE;
+#undef pdFALSE
+const BaseType_t pdFALSE = pdFALSE_TMP;
+
+static const BaseType_t pdTRUE_TMP = pdTRUE;
+#undef pdTRUE
+const BaseType_t pdTRUE = pdTRUE_TMP;
+
+static const BaseType_t tmrCOMMAND_DELETE_TMP = tmrCOMMAND_DELETE;
+#undef tmrCOMMAND_DELETE
+const BaseType_t tmrCOMMAND_DELETE = tmrCOMMAND_DELETE_TMP;
+
+static const BaseType_t tmrCOMMAND_STOP_TMP = tmrCOMMAND_STOP;
+#undef tmrCOMMAND_STOP
+const BaseType_t tmrCOMMAND_STOP = tmrCOMMAND_STOP_TMP;
+
+static const BaseType_t tmrCOMMAND_STOP_FROM_ISR_TMP = tmrCOMMAND_STOP_FROM_ISR;
+#undef tmrCOMMAND_STOP_FROM_ISR
+const BaseType_t tmrCOMMAND_STOP_FROM_ISR = tmrCOMMAND_STOP_FROM_ISR_TMP;
+
+static const BaseType_t tmrCOMMAND_CHANGE_PERIOD_TMP = tmrCOMMAND_CHANGE_PERIOD;
+#undef tmrCOMMAND_CHANGE_PERIOD
+const BaseType_t tmrCOMMAND_CHANGE_PERIOD = tmrCOMMAND_CHANGE_PERIOD_TMP;
+
+static const BaseType_t tmrCOMMAND_CHANGE_PERIOD_FROM_ISR_TMP = tmrCOMMAND_CHANGE_PERIOD_FROM_ISR;
+#undef tmrCOMMAND_CHANGE_PERIOD_FROM_ISR
+const BaseType_t tmrCOMMAND_CHANGE_PERIOD_FROM_ISR = tmrCOMMAND_CHANGE_PERIOD_FROM_ISR_TMP;
+
 
 // Just for testing
 void freertos_rs_invoke_configASSERT() {
@@ -113,7 +185,9 @@ unsigned long freertos_rs_get_configCPU_CLOCK_HZ() {
   return configCPU_CLOCK_HZ;
 }
 
-const TickType_t PORT_TICK_PERIOD_MS = portTICK_PERIOD_MS;
+static const TickType_t portTICK_PERIOD_MS_TMP = portTICK_PERIOD_MS;
+#undef portTICK_PERIOD_MS
+const TickType_t portTICK_PERIOD_MS = portTICK_PERIOD_MS_TMP;
 
 UBaseType_t freertos_rs_get_number_of_tasks() {
 	return uxTaskGetNumberOfTasks();
@@ -269,19 +343,13 @@ UBaseType_t freertos_rs_queue_receive(QueueHandle_t queue, void* const item, Tic
 	return 0;
 }
 
-UBaseType_t freertos_rs_queue_messages_waiting(QueueHandle_t queue) {
-	return uxQueueMessagesWaiting( queue );
+void freertos_rs_yield_from_isr(BaseType_t x) {
+	portYIELD_FROM_ISR(x);
 }
 
-void freertos_rs_isr_yield() {
-	portYIELD();
-}
-
-const TickType_t PORT_MAX_DELAY = portMAX_DELAY;
-
-char* freertos_rs_task_get_name(TaskHandle_t task) {
-	return pcTaskGetName(task);
-}
+static const TickType_t portMAX_DELAY_TMP = portMAX_DELAY;
+#undef portMAX_DELAY
+const TickType_t portMAX_DELAY = portMAX_DELAY_TMP;
 
 uint32_t freertos_rs_task_notify_take(BaseType_t clear_count, TickType_t wait) {
 	return ulTaskNotifyTake(clear_count == 0 ? pdFALSE : pdTRUE, wait);
@@ -332,14 +400,6 @@ TaskHandle_t freertos_rs_get_current_task() {
 	return xTaskGetCurrentTaskHandle();
 }
 #endif
-
-void freertos_rs_vTaskSuspend(TaskHandle_t task) {
-  vTaskSuspend(task);
-}
-
-void freertos_rs_vTaskSuspendAll() {
-  vTaskSuspendAll();
-}
 
 BaseType_t freertos_rs_xTaskResumeAll() {
   return xTaskResumeAll();

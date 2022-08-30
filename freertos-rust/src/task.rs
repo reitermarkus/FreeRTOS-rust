@@ -99,7 +99,7 @@ impl TaskBuilder {
 
 impl Task {
     /// Minimal task stack size.
-    pub const MINIMAL_STACK_SIZE: u16 = TASK_MINIMAL_STACK_SIZE;
+    pub const MINIMAL_STACK_SIZE: u16 = configMINIMAL_STACK_SIZE;
 
     /// Prepare a builder object for the new task.
     pub fn new() -> TaskBuilder {
@@ -120,13 +120,13 @@ impl Task {
 
     pub fn suspend(&self) {
         unsafe {
-            freertos_rs_vTaskSuspend(self.handle.as_ptr())
+          vTaskSuspend(self.handle.as_ptr())
         }
     }
 
     pub fn suspend_all() {
       unsafe {
-          freertos_rs_vTaskSuspendAll();
+          vTaskSuspendAll();
       }
     }
 
@@ -204,7 +204,7 @@ impl Task {
     /// Get the name of the current task.
     pub fn get_name(&self) -> Result<String, ()> {
         unsafe {
-            let name_ptr = freertos_rs_task_get_name(self.handle.as_ptr());
+            let name_ptr = pcTaskGetName(self.handle.as_ptr());
             let name = str_from_c_string(name_ptr);
             if let Ok(name) = name {
                 return Ok(name);

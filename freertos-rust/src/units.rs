@@ -16,7 +16,7 @@ pub struct Duration {
 impl Duration {
     /// Milliseconds constructor
     pub fn ms(milliseconds: u32) -> Self {
-        Self::ticks(milliseconds / PORT_TICK_PERIOD_MS)
+        Self::ticks(milliseconds / portTICK_PERIOD_MS)
     }
 
     pub fn ticks(ticks: u32) -> Self {
@@ -25,7 +25,7 @@ impl Duration {
 
     /// An infinite duration
     pub fn infinite() -> Self {
-        Self::ticks(PORT_MAX_DELAY)
+        Self::ticks(portMAX_DELAY)
     }
 
     /// A duration of zero, for non-blocking calls
@@ -39,7 +39,7 @@ impl Duration {
     }
 
     pub fn to_ms(&self) -> u32 {
-        self.ticks * PORT_TICK_PERIOD_MS
+        self.ticks * portTICK_PERIOD_MS
     }
 }
 

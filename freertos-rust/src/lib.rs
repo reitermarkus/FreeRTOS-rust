@@ -1,4 +1,3 @@
-#![feature(allocator_api)]
 //! # FreeRTOS for Rust
 //!
 //! Rust interface for the FreeRTOS embedded operating system. Requires nightly Rust.
@@ -52,11 +51,12 @@
 //! 	*v += 1;
 //! }
 //! ```
-
 #![no_std]
 #![allow(non_upper_case_globals)]
 #![allow(non_camel_case_types)]
 #![allow(non_snake_case)]
+#![feature(allocator_api)]
+#![feature(maybe_uninit_slice, maybe_uninit_uninit_array, const_maybe_uninit_uninit_array)]
 
 #[cfg_attr(any(feature = "time", feature = "sync"), macro_use)]
 extern crate alloc;
@@ -96,7 +96,6 @@ pub mod patterns;
 
 // Internal stuff that is only public for first Proof of Concept
 pub use crate::base::*;
-use crate::shim::*;
 // ----------
 
 #[cfg(feature = "allocator")]

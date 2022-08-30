@@ -123,7 +123,7 @@ impl<T: Sized + Send + Copy> Queue<T> {
     /// Get the number of messages in the queue.
     pub fn len(&self) -> u32 {
       unsafe {
-        freertos_rs_queue_messages_waiting(self.handle.as_ptr())
+        uxQueueMessagesWaiting(self.handle.as_ptr())
       }
     }
 
