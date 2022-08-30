@@ -157,35 +157,34 @@ impl Timer {
     /// Start the timer.
     pub fn start<D: DurationTicks>(&self, block_time: D) -> Result<(), FreeRtosError> {
         unsafe {
-            if freertos_rs_timer_start(self.handle.as_ptr(), block_time.to_ticks()) == 0 {
-                Ok(())
-            } else {
-                Err(FreeRtosError::Timeout)
+            if xTimerStart(self.handle.as_ptr(), block_time.to_ticks()) == pdPASS {
+                return Ok(())
             }
         }
+        Err(FreeRtosError::Timeout)
     }
 
     /// Start the timer from an interrupt.
     pub fn start_from_isr(&self, context: &mut InterruptContext) -> Result<(), FreeRtosError> {
         unsafe {
-            if freertos_rs_timer_start_from_isr(self.handle.as_ptr(), context.x_higher_priority_task_woken()) == 0 {
-                Ok(())
-            } else {
-                Err(FreeRtosError::QueueSendTimeout)
+            if xTimerStartFromISR(self.handle.as_ptr(), context.x_higher_priority_task_woken()) == pdPASS {
+                return Ok(())
             }
         }
+
+        Err(FreeRtosError::QueueSendTimeout)
     }
 
     /// Stop the timer.
     pub fn stop<D: DurationTicks>(&self, block_time: D) -> Result<(), FreeRtosError> {
         unsafe {
-            if freertos_rs_timer_stop(self.handle.as_ptr(), block_time.to_ticks()) == 0 {
-                Ok(())
-            } else {
-                Err(FreeRtosError::Timeout)
+            if xTimerStop(self.handle.as_ptr(), block_time.to_ticks()) == pdPASS {
+                return Ok(())
             }
         }
-    }
+
+        Err(FreeRtosError::Timeout)
+  }
 
     pub fn is_active(&self) -> bool {
         unsafe { xTimerIsTimerActive(self.handle.as_ptr()) != 0 }
@@ -198,16 +197,15 @@ impl Timer {
         new_period: D,
     ) -> Result<(), FreeRtosError> {
         unsafe {
-            if freertos_rs_timer_change_period(
+            if xTimerChangePeriod(
                 self.handle.as_ptr(),
                 block_time.to_ticks(),
                 new_period.to_ticks(),
-            ) == 0
-            {
-                Ok(())
-            } else {
-                Err(FreeRtosError::Timeout)
+            ) == pdTRUE {
+                return Ok(())
             }
+
+            Err(FreeRtosError::Timeout)
         }
     }
 
@@ -220,7 +218,7 @@ impl Timer {
     }
 
     fn get_id(&self) -> Result<FreeRtosVoidPtr, FreeRtosError> {
-        unsafe { Ok(freertos_rs_timer_get_id(self.handle.as_ptr())) }
+        unsafe { Ok(pvTimerGetTimerID(self.handle.as_ptr())) }
     }
 }
 
@@ -238,7 +236,7 @@ impl Drop for Timer {
             }
 
             // todo: configurable timeout?
-            freertos_rs_timer_delete(self.handle.as_ptr(), Duration::ms(1000).to_ticks());
+            xTimerDelete(self.handle.as_ptr(), Duration::ms(1000).to_ticks());
         }
     }
 }

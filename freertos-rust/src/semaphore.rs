@@ -40,25 +40,25 @@ pub struct Semaphore<T: SemaphoreImpl> {
 
 impl LazyInit for Binary {
   fn init() -> NonNull<CVoid> {
-    let ptr = unsafe { freertos_rs_semaphore_create_binary() };
+    let ptr = unsafe { xSemaphoreCreateBinary() };
     assert!(!ptr.is_null());
     unsafe { NonNull::new_unchecked(ptr) }
   }
 
   fn destroy(ptr: NonNull<CVoid>) {
-    unsafe { freertos_rs_semaphore_delete(ptr.as_ptr()) }
+    unsafe { vSemaphoreDelete(ptr.as_ptr()) }
   }
 }
 
 impl<const MAX: u32, const INITIAL: u32> LazyInit for Counting<MAX, INITIAL> {
   fn init() -> NonNull<CVoid> {
-    let ptr = unsafe { freertos_rs_semaphore_create_counting(MAX, INITIAL) };
+    let ptr = unsafe { xSemaphoreCreateCounting(MAX, INITIAL) };
     assert!(!ptr.is_null());
     unsafe { NonNull::new_unchecked(ptr) }
   }
 
   fn destroy(ptr: NonNull<CVoid>) {
-    unsafe { freertos_rs_semaphore_delete(ptr.as_ptr()) }
+    unsafe { vSemaphoreDelete(ptr.as_ptr()) }
   }
 }
 
@@ -76,7 +76,7 @@ impl Semaphore<Binary> {
     semaphore: &'static mut MaybeUninit<Self>,
   ) -> &'static mut Self {
     unsafe {
-      let handle = freertos_rs_semaphore_create_binary_static(
+      let handle = xSemaphoreCreateBinaryStatic(
         static_semaphore.as_mut_ptr(),
       );
 
@@ -93,7 +93,7 @@ impl<const MAX: u32, const INITIAL: u32> Semaphore<Counting<MAX, INITIAL>> {
     assert!(INITIAL <= MAX);
 
     unsafe {
-      let handle = freertos_rs_semaphore_create_counting_static(
+      let handle = xSemaphoreCreateCountingStatic(
         MAX, INITIAL,
         static_semaphore.as_mut_ptr(),
       );
@@ -140,6 +140,10 @@ impl<T: SemaphoreImpl> Semaphore<T> {
     unsafe { semaphore_take(self.handle.as_ptr(), max_wait) }
   }
 
+  pub fn take_from_isr(&self, ic: &mut InterruptContext) -> Result<(), FreeRtosError> {
+    unsafe { semaphore_take_from_isr(self.handle.as_ptr(), ic) }
+  }
+
   /// Lock this semaphore in a RAII fashion
   pub fn lock<D: DurationTicks>(&self, max_wait: D) -> Result<SemaphoreGuard<'_>, FreeRtosError> {
       self.take(max_wait)?;
@@ -162,31 +166,41 @@ impl Drop for SemaphoreGuard<'_> {
 }
 
 unsafe fn semaphore_give(handle: *mut CVoid) -> Result<(), FreeRtosError> {
-    let res = freertos_rs_semaphore_give(handle);
+    let res = xSemaphoreGive(handle);
 
-    if res != 0 {
-      return Err(FreeRtosError::QueueFull);
+    if res == pdTRUE {
+      return Ok(())
     }
 
-    Ok(())
+    Err(FreeRtosError::QueueFull)
 }
 
 unsafe fn semaphore_give_from_isr(handle: *mut CVoid, ic: &mut InterruptContext) -> Result<(), FreeRtosError> {
-    let res = freertos_rs_semaphore_give_from_isr(handle, ic.x_higher_priority_task_woken());
+    let res = xSemaphoreGiveFromISR(handle, ic.x_higher_priority_task_woken());
 
-    if res != 0 {
-      return Err(FreeRtosError::QueueFull);
+    if res == pdTRUE {
+      return Ok(())
     }
 
-    Ok(())
+    Err(FreeRtosError::QueueFull)
 }
 
 unsafe fn semaphore_take<D: DurationTicks>(handle: *mut CVoid, max_wait: D) -> Result<(), FreeRtosError> {
-    let res = freertos_rs_semaphore_take(handle, max_wait.to_ticks());
+    let res = xSemaphoreTake(handle, max_wait.to_ticks());
 
-    if res != 0 {
-        return Err(FreeRtosError::Timeout);
+    if res == pdTRUE {
+      return Ok(())
     }
 
-    Ok(())
+    Err(FreeRtosError::Timeout)
+}
+
+unsafe fn semaphore_take_from_isr(handle: *mut CVoid, ic: &mut InterruptContext) -> Result<(), FreeRtosError> {
+  let res = xSemaphoreTakeFromISR(handle, ic.x_higher_priority_task_woken());
+
+  if res == pdTRUE {
+    return Ok(())
+  }
+
+  Err(FreeRtosError::QueueFull)
 }

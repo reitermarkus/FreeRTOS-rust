@@ -119,21 +119,15 @@ impl Task {
     }
 
     pub fn suspend(&self) {
-        unsafe {
-          vTaskSuspend(self.handle.as_ptr())
-        }
+        unsafe { vTaskSuspend(self.handle.as_ptr()) }
     }
 
     pub fn suspend_all() {
-      unsafe {
-          vTaskSuspendAll();
-      }
+      unsafe { vTaskSuspendAll() }
     }
 
-    pub fn resume_all() {
-        unsafe {
-            freertos_rs_xTaskResumeAll();
-        }
+    pub fn resume_all() -> bool {
+        unsafe { xTaskResumeAll() == pdTRUE }
     }
 
     unsafe fn spawn_inner<'a>(
@@ -173,11 +167,11 @@ impl Task {
                 {
                     let b = Box::from_raw(main as *mut Box<dyn FnOnce(Task)>);
                     b(Task {
-                        handle: NonNull::new_unchecked(freertos_rs_get_current_task()),
+                        handle: NonNull::new_unchecked(xTaskGetCurrentTaskHandle()),
                     });
                 }
 
-                freertos_rs_delete_task(ptr::null_mut());
+                vTaskDelete(ptr::null_mut());
             }
         }
 
@@ -217,7 +211,7 @@ impl Task {
     /// Try to find the task of the current execution context.
     pub fn current() -> Result<Task, FreeRtosError> {
         unsafe {
-            match NonNull::new(freertos_rs_get_current_task()) {
+            match NonNull::new(xTaskGetCurrentTaskHandle()) {
               Some(handle) => Ok(Task { handle }),
               None => Err(FreeRtosError::TaskNotFound),
             }
@@ -226,30 +220,38 @@ impl Task {
 
     /// Forcibly set the notification value for this task.
     pub fn set_notification_value(&self, val: u32) {
-        self.notify(TaskNotification::OverwriteValue(val))
+        let _ = self.notify(TaskNotification::OverwriteValue(val));
     }
 
     /// Take the notification and either clear the notification value or decrement it by one.
     pub fn take_notification<D: DurationTicks>(clear: bool, wait_for: D) -> u32 {
       unsafe {
-          freertos_rs_task_notify_take(if clear { 1 } else { 0 }, wait_for.to_ticks())
+        ulTaskNotifyTake(if clear { pdTRUE } else { pdFALSE }, wait_for.to_ticks())
       }
     }
 
     /// Notify this task.
-    pub fn notify(&self, notification: TaskNotification) {
+    pub fn notify(&self, notification: TaskNotification) -> Result<(), FreeRtosError> {
       unsafe {
           let n = notification.to_freertos();
-          freertos_rs_task_notify(self.handle.as_ptr(), n.0, n.1);
+          if xTaskNotify(self.handle.as_ptr(), n.0, n.1) == pdPASS {
+            return Ok(())
+          }
       }
+
+      Err(FreeRtosError::QueueFull)
     }
 
     /// Notify this task with the given index.
-    pub fn notify_indexed(&self, index: u32, notification: TaskNotification) {
+    pub fn notify_indexed(&self, index: u32, notification: TaskNotification) -> Result<(), FreeRtosError> {
       unsafe {
           let n = notification.to_freertos();
-          freertos_rs_task_notify_indexed(self.handle.as_ptr(), index, n.0, n.1);
+          if freertos_rs_task_notify_indexed(self.handle.as_ptr(), index, n.0, n.1) == pdPASS {
+            return Ok(())
+          }
       }
+
+      Err(FreeRtosError::QueueFull)
     }
 
     /// Notify this task from an interrupt.
@@ -260,18 +262,18 @@ impl Task {
     ) -> Result<(), FreeRtosError> {
         unsafe {
             let n = notification.to_freertos();
-            let t = freertos_rs_task_notify_from_isr(
+            let t = xTaskNotifyFromISR(
                 self.handle.as_ptr(),
                 n.0,
                 n.1,
                 context.x_higher_priority_task_woken(),
             );
-            if t != 0 {
-                Err(FreeRtosError::QueueFull)
-            } else {
-                Ok(())
+            if t == pdPASS {
+                return Ok(())
             }
         }
+
+        Err(FreeRtosError::QueueFull)
     }
 
     /// Notify this task from an interrupt with the given index.
@@ -290,12 +292,12 @@ impl Task {
                 n.1,
                 context.x_higher_priority_task_woken(),
             );
-            if t != 0 {
-                Err(FreeRtosError::QueueFull)
-            } else {
-                Ok(())
-            }
-        }
+            if t == pdPASS {
+              return Ok(())
+          }
+      }
+
+      Err(FreeRtosError::QueueFull)
     }
 
     /// Wait for a notification to be posted.
@@ -307,7 +309,7 @@ impl Task {
     ) -> Result<u32, FreeRtosError> {
         let mut val = 0;
         let r = unsafe {
-            freertos_rs_task_notify_wait(
+            xTaskNotifyWait(
                 clear_bits_enter,
                 clear_bits_exit,
                 &mut val as *mut _,
@@ -315,11 +317,10 @@ impl Task {
             )
         };
 
-        if r == 0 {
-            Ok(val)
-        } else {
-            Err(FreeRtosError::Timeout)
-        }
+        if r == pdPASS {
+            return Ok(val)
+          }
+      Err(FreeRtosError::Timeout)
     }
 
     /// Get the minimum amount of stack that was ever left on this task.
@@ -335,7 +336,7 @@ impl CurrentTask {
     /// Delay the execution of the current task.
     pub fn delay<D: DurationTicks>(delay: D) {
         unsafe {
-            freertos_rs_vTaskDelay(delay.to_ticks());
+          vTaskDelay(delay.to_ticks());
         }
     }
 }
@@ -419,13 +420,13 @@ impl FreeRtosUtils {
         }
     }
     pub fn start_scheduler() -> ! {
-        unsafe { freertos_rs_vTaskStartScheduler() };
+        unsafe { vTaskStartScheduler() };
         unreachable!()
     }
 
     pub fn scheduler_state() -> FreeRtosSchedulerState {
       unsafe {
-        match freertos_rt_xTaskGetSchedulerState() {
+        match xTaskGetSchedulerState() {
           0 => FreeRtosSchedulerState::Suspended,
           1 => FreeRtosSchedulerState::NotStarted,
           2 => FreeRtosSchedulerState::Running,
@@ -435,7 +436,7 @@ impl FreeRtosUtils {
     }
 
     pub fn get_tick_count() -> FreeRtosTickType {
-        unsafe { freertos_rs_xTaskGetTickCount() }
+        unsafe { xTaskGetTickCount() }
     }
 
     pub fn get_tick_count_duration() -> Duration {
@@ -443,7 +444,7 @@ impl FreeRtosUtils {
     }
 
     pub fn get_number_of_tasks() -> usize {
-        unsafe { freertos_rs_get_number_of_tasks() as usize }
+        unsafe { uxTaskGetNumberOfTasks() as usize }
     }
 
     pub fn get_all_tasks(tasks_len: Option<usize>) -> FreeRtosSystemState {
@@ -452,7 +453,7 @@ impl FreeRtosUtils {
         let mut total_run_time = 0;
 
         unsafe {
-            let filled = freertos_rs_get_system_state(
+            let filled = uxTaskGetSystemState(
                 tasks.as_mut_ptr(),
                 tasks_len as FreeRtosUBaseType,
                 &mut total_run_time,

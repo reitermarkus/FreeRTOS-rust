@@ -2,36 +2,89 @@ use std::env;
 use std::fmt;
 use std::io::Write;
 use std::str;
-use std::fs;
+use std::fs::{self, File};
 use std::path::PathBuf;
 use std::process::exit;
 use std::sync::{Mutex, Arc};
 
 use bindgen::callbacks::ParseCallbacks;
 
+mod constants;
+
 #[derive(Debug)]
-struct Arg {
-  name: String,
-  cast: Option<String>,
+enum Arg {
+  Variable { name: String },
+  FunctionCall(FunctionCall),
+  Cast { expr: Box<Arg>, cast: String }
+}
+
+impl Arg {
+  pub fn parse(s: &str) -> Option<(Arg, &str)> {
+    // Parse argument with cast or parentheses.
+    if let Some(s) = parse_char(s, '(') {
+      let s = skip_meta(s);
+
+      if let Some((ty, s)) = parse_ident(s) {
+        let s = skip_meta(s);
+
+        if let Some(s) = parse_char(s, ')') {
+          let s = skip_meta(s);
+
+          if let Some((arg, s)) = Self::parse(s) {
+            return Some((Arg::Cast { expr: Box::new(arg), cast: ty }, s))
+          }
+        }
+      }
+
+      if let Some((arg, s)) = Self::parse(s) {
+        let s = skip_meta(s);
+        let s = parse_char(s, ')')?;
+        return Some((arg, s))
+      }
+    }
+
+    // String.
+    if let Some(s) = parse_char(s, '"') {
+      if let Some(end) = s.chars().position(|c| c == '"') {
+        return Some((Arg::Variable { name: format!("{:?}", &s[..end]) }, &s[(end + 1)..]))
+      }
+    }
+
+    if let Some((call, s)) = FunctionCall::parse(s) {
+      return Some((Arg::FunctionCall(call), s))
+    }
+
+    // Bare identifier.
+    let (ident, s) = parse_ident(s)?;
+    Some((Arg::Variable { name: ident }, s))
+  }
 }
 
 impl fmt::Display for Arg {
   fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-    if self.name == "NULL" {
-      write!(f, "::core::ptr::null_mut()")?;
-    } else if self.name == "0U" {
-      write!(f, "0")?;
-    } else if self.name == "eIncrement" {
-      write!(f, "eNotifyAction_eIncrement")?;
-    } else {
-      write!(f, "{}", self.name)?;
-    }
+    match self {
+      Self::Cast { expr, cast } => {
+        if cast == "void" {
+          write!(f, "drop({})", expr)
+        } else {
+          write!(f, "{} as {}", expr, cast)
+        }
+      },
+      Self::Variable { name } => {
+        if name == "NULL" {
+          write!(f, "::core::ptr::null_mut()")?;
+        } else if name == "0U" {
+          write!(f, "0")?;
+        } else if name == "eIncrement" {
+          write!(f, "eNotifyAction_eIncrement")?;
+        } else {
+          write!(f, "{}", name)?;
+        }
 
-    if let Some(cast) = &self.cast {
-      write!(f, " as {}", cast)?;
+        Ok(())
+      },
+      Self::FunctionCall(call) => call.fmt(f),
     }
-
-    Ok(())
   }
 }
 
@@ -103,7 +156,7 @@ impl fmt::Display for Assignment {
 
 #[derive(Debug)]
 enum Statement {
-  FunctionCall(FunctionCall),
+  Expr(Arg),
   Assignment(Assignment),
 }
 
@@ -113,8 +166,8 @@ impl Statement {
       return Some((Self::Assignment(a), s))
     }
 
-    if let Some((call, s)) = FunctionCall::parse(s) {
-      return Some((Self::FunctionCall(call), s))
+    if let Some((expr, s)) = Arg::parse(s) {
+      return Some((Self::Expr(expr), s))
     }
 
     None
@@ -124,7 +177,7 @@ impl Statement {
 impl fmt::Display for Statement {
   fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
     match self {
-      Self::FunctionCall(call) => call.fmt(f),
+      Self::Expr(expr) => expr.fmt(f),
       Self::Assignment(a) => a.fmt(f),
     }
   }
@@ -222,7 +275,9 @@ fn variable_type(macro_name: &str, variable_name: &str) -> Option<&'static str> 
     "ulValue" => "u32",
     "pulPreviousNotificationValue" | "pulPreviousNotifyValue" => "*mut u32",
     "pvTaskToDelete" | "pvBuffer" => "*mut ::cty::c_void",
-    "pxTCB" => "*mut TCB_t",
+    "pucQueueStorage" => "*mut u8",
+    "pxQueueBuffer" => "*mut StaticQueue_t",
+    "pxSemaphoreBuffer" | "pxMutexBuffer" | "pxStaticSemaphore" => "*mut StaticSemaphore_t",
     "x" if macro_name.ends_with("_CRITICAL_FROM_ISR") => "UBaseType_t",
     "x" if macro_name.ends_with("CLEAR_INTERRUPT_MASK_FROM_ISR") => "UBaseType_t",
     "x" if macro_name.ends_with("YIELD_FROM_ISR") => "BaseType_t",
@@ -231,6 +286,10 @@ fn variable_type(macro_name: &str, variable_name: &str) -> Option<&'static str> 
 }
 
 fn return_type(macro_name: &str) -> Option<&'static str> {
+  if macro_name.starts_with("port") && macro_name.ends_with("_PRIORITY") {
+    return Some("UBaseType_t")
+  }
+
   if macro_name.ends_with("MutexHolder") {
     return Some("TaskHandle_t")
   }
@@ -268,7 +327,7 @@ impl FunctionCall {
       s = s2;
     } else {
       loop {
-        let (arg, s2) = Self::parse_arg(s)?;
+        let (arg, s2) = Arg::parse(s)?;
         args.push(arg);
         s = s2;
 
@@ -283,43 +342,6 @@ impl FunctionCall {
     }
 
     Some((args, s))
-  }
-
-  fn parse_arg(s: &str) -> Option<(Arg, &str)> {
-    // Parse argument with cast or parentheses.
-    if let Some(s) = parse_char(s, '(') {
-      let s = skip_meta(s);
-
-      if let Some((ty, s)) = parse_ident(s) {
-        let s = skip_meta(s);
-
-        if let Some(s) = parse_char(s, ')') {
-          let s = skip_meta(s);
-
-          if let Some((mut arg, s)) = Self::parse_arg(s) {
-            arg.cast = Some(ty);
-            return Some((arg, s))
-          }
-        }
-      }
-
-      if let Some((arg, s)) = Self::parse_arg(s) {
-        let s = skip_meta(s);
-        let s = parse_char(s, ')')?;
-        return Some((arg, s))
-      }
-    }
-
-    // String.
-    if let Some(s) = parse_char(s, '"') {
-      if let Some(end) = s.chars().position(|c| c == '"') {
-        return Some((Arg { name: format!("{:?}", &s[..end]), cast: None }, &s[(end + 1)..]))
-      }
-    }
-
-    // Bare identifier.
-    let (ident, s) = parse_ident(s)?;
-    Some((Arg { name: ident, cast: None }, s))
   }
 
   fn parse(s: &str) -> Option<(Self, &str)> {
@@ -343,37 +365,41 @@ impl ParseCallbacks for Callbacks {
 
     eprintln!("{} -> {}", name, value);
 
-    let macro_call_lhs = MacroSig::parse(name);
-    let macro_call_rhs = MacroBody::parse(&value);
+    let macro_sig = MacroSig::parse(name).unwrap();
+    let macro_body = MacroBody::parse(&value);
 
-    eprintln!("FUNC MACRO: {:?} -> {:?}", macro_call_lhs, macro_call_rhs);
+    let name = &macro_sig.name;
+
+    if name.starts_with("_") ||
+      name == "offsetof" ||
+      name.starts_with("INT") ||
+      name.starts_with("UINT") ||
+      name.starts_with("list") ||
+      name.starts_with("trace") ||
+      name.starts_with("config") ||
+      name == "taskYIELD" || name == "portYIELD" ||
+      name.ends_with("YIELD_FROM_ISR") ||
+      name.ends_with("_CRITICAL_FROM_ISR") ||
+      name.ends_with("DISABLE_INTERRUPTS") ||
+      name.ends_with("ENABLE_INTERRUPTS") ||
+      name.ends_with("END_SWITCHING_ISR") ||
+      name.ends_with("INTERRUPT_MASK_FROM_ISR") ||
+      name.starts_with("configAssert") ||
+      name.starts_with("portTASK_FUNCTION") ||
+      name.ends_with("_TCB") ||
+      name == "vSemaphoreCreateBinary" {
+      return;
+    }
+
+    eprintln!("FUNC MACRO: {:?} -> {:?}", macro_sig, macro_body);
 
     let mut f = String::new();
 
-    if let Some((macro_sig, macro_body)) = macro_call_lhs.zip(macro_call_rhs.map(|rhs| rhs.0)) {
-      let name = macro_sig.name;
-
-      if name.starts_with("_") ||
-        name == "offsetof" ||
-        name.starts_with("INT") ||
-        name.starts_with("UINT") ||
-        name.starts_with("list") ||
-        name.starts_with("trace") ||
-        name.starts_with("config") ||
-        name == "taskYIELD" || name == "portYIELD" ||
-        name.ends_with("YIELD_FROM_ISR") ||
-        name.ends_with("_CRITICAL_FROM_ISR") ||
-        name.ends_with("DISABLE_INTERRUPTS") ||
-        name.ends_with("ENABLE_INTERRUPTS") ||
-        name.ends_with("END_SWITCHING_ISR") ||
-        name.ends_with("INTERRUPT_MASK_FROM_ISR") ||
-        name.starts_with("configAssert") {
-        return;
-      }
+    if let Some(macro_body) = macro_body.map(|rhs| rhs.0) {
 
       writeln!(f, "#[allow(non_snake_case)]").unwrap();
       writeln!(f, "#[inline]").unwrap();
-      write!(f, r#"unsafe extern "C" fn {}("#, name).unwrap();
+      write!(f, r#"pub unsafe extern "C" fn {}("#, name).unwrap();
       for (i, arg) in macro_sig.arguments.iter().enumerate() {
         if i > 0 {
           write!(f, ", ").unwrap();
@@ -416,6 +442,10 @@ fn main() {
     let out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
     let shim_dir = manifest_dir.join("src/freertos");
     println!("cargo:SHIM={}", shim_dir.display());
+
+    let constants = out_dir.join("constants.h");
+    let mut f = File::create(&constants).unwrap();
+    constants::write_to_file(&mut f).unwrap();
 
     if let Ok(freertos_source) = env::var("FREERTOS_SRC") {
       let mut heap = None;
@@ -463,7 +493,9 @@ fn main() {
           .clang_arg(format!("-I{}", freertos_source.join("include").display()))
           .clang_arg(format!("-I{}", freertos_config.display()))
           .clang_arg(format!("-I{}", freertos_builder.get_freertos_port_dir().display()))
+          .clang_arg(format!("-DRUST"))
           .header(shim_dir.join("shim.c").display().to_string())
+          .header(constants.display().to_string())
           .parse_callbacks(Box::new(Callbacks {
             function_macros: function_macros.clone(),
           }))
@@ -481,7 +513,7 @@ fn main() {
       let mut f = fs::OpenOptions::new()
         .write(true)
         .append(true)
-        .open(bindings)
+        .open(&bindings)
         .unwrap();
 
       f.write_all(function_macros.as_bytes()).unwrap();
