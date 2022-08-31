@@ -1,9 +1,12 @@
+use core::cell::UnsafeCell;
+use core::fmt;
+use core::marker::PhantomData;
+use core::ops::{Deref, DerefMut};
 use core::ptr::NonNull;
 
 use crate::base::*;
 use crate::lazy_init::LazyInit;
 use crate::lazy_init::LazyPtr;
-use crate::prelude::v1::*;
 use crate::shim::*;
 use crate::units::*;
 

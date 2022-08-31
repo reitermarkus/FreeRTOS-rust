@@ -19,19 +19,21 @@ name = "freertos_rust"
 path = "src/lib.rs"
 
 [features]
-default = ["allocator", "sync", "time", "hooks", "interrupt"]
-allocator = []
+default = ["alloc", "sync", "time", "hooks", "interrupt"]
+alloc = []
 sync = ["interrupt"]
 time = ["interrupt"]
 hooks = []
 interrupt = []
 
-heap_1 = []
-heap_2 = []
-heap_3 = []
-heap_4 = []
+heap_1 = ["alloc"]
+heap_2 = ["alloc"]
+heap_3 = ["alloc"]
+heap_4 = ["alloc"]
+heap_5 = ["alloc"]
 
 [dependencies]
+critical-section = { version = "1.0", optional = true }
 
 [build-dependencies]
 freertos-cargo-build = { path = "../freertos-cargo-build" }

@@ -1,5 +1,7 @@
+use core::cell::UnsafeCell;
+use core::ops::{Deref, DerefMut};
+
 use crate::base::*;
-use crate::prelude::v1::*;
 use crate::shim::*;
 
 pub struct CriticalRegion;

@@ -55,7 +55,6 @@
 #![allow(non_upper_case_globals)]
 #![allow(non_camel_case_types)]
 #![allow(non_snake_case)]
-#![feature(allocator_api)]
 #![feature(maybe_uninit_slice, maybe_uninit_uninit_array, const_maybe_uninit_uninit_array)]
 #![feature(c_size_t)]
 
@@ -64,10 +63,9 @@ extern crate alloc;
 
 #[cfg(feature = "hooks")]
 pub mod assert;
-mod prelude;
 mod shim;
 
-#[cfg(feature = "allocator")]
+#[cfg(feature = "alloc")]
 mod allocator;
 mod base;
 #[cfg(feature = "sync")]
@@ -99,7 +97,7 @@ pub mod patterns;
 pub use crate::base::*;
 // ----------
 
-#[cfg(feature = "allocator")]
+#[cfg(feature = "alloc")]
 pub use crate::allocator::*;
 pub use crate::base::FreeRtosError;
 #[cfg(feature = "sync")]
@@ -124,4 +122,3 @@ pub use crate::timers::*;
 pub use crate::units::*;
 
 pub use crate::utils::cpu_clock_hz;
-pub use crate::utils::shim_sanity_check;

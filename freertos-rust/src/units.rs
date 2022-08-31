@@ -1,5 +1,4 @@
 use crate::base::FreeRtosTickType;
-use crate::prelude::v1::*;
 use crate::shim::*;
 
 pub trait DurationTicks: Copy + Clone {

@@ -1,11 +1,10 @@
 use core::ffi::CStr;
-use core::mem::MaybeUninit;
-use core::mem::size_of;
-use core::ptr::NonNull;
+use core::marker::PhantomData;
+use core::mem::{MaybeUninit, size_of, self};
+use core::ptr::{self, NonNull};
 
 use crate::base::*;
 use crate::isr::*;
-use crate::prelude::v1::*;
 use crate::shim::*;
 use crate::units::*;
 
@@ -72,7 +71,7 @@ macro_rules! impl_receive {
         /// Wait for an item to be available on the queue.
         #[inline]
         pub fn receive<D: DurationTicks>(&self, max_wait: D) -> Result<T, FreeRtosError> {
-          let mut item = mem::MaybeUninit::<T>::zeroed();
+          let mut item = MaybeUninit::<T>::zeroed();
 
           let res = unsafe {
             xQueueReceive(self.handle.as_ptr(), item.as_mut_ptr().cast(), max_wait.to_ticks())

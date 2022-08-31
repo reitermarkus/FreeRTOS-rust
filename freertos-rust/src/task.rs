@@ -1,14 +1,22 @@
 use core::ffi::CStr;
+use core::fmt;
+use core::mem;
+use core::mem::MaybeUninit;
+use core::ptr;
 use core::ptr::NonNull;
 
-use alloc::ffi::CString;
+#[cfg(feature = "alloc")]
+use alloc::{
+  boxed::Box,
+  ffi::CString,
+  string::{String, ToString},
+  vec::Vec,
+};
 
 use crate::base::*;
 use crate::isr::*;
-use crate::prelude::v1::*;
 use crate::shim::*;
 use crate::units::*;
-use crate::utils::*;
 
 /// Handle for a FreeRTOS task
 #[derive(Debug, Clone)]
@@ -151,6 +159,7 @@ impl Task {
 
         extern "C" fn thread_start(main: *mut CVoid) {
             unsafe {
+                // NOTE: New scope so that everything is dropped before the task is deleted.
                 {
                     let b = Box::from_raw(main as *mut Box<dyn FnOnce(Task)>);
 
@@ -402,7 +411,7 @@ impl fmt::Display for FreeRtosSystemState {
 pub struct FreeRtosTaskStatus {
     pub task: Task,
     pub name: String,
-    pub task_number: FreeRtosUBaseType,
+    pub task_number: UBaseType_t,
     pub task_state: FreeRtosTaskState,
     pub current_priority: TaskPriority,
     pub base_priority: TaskPriority,
@@ -420,11 +429,13 @@ pub enum FreeRtosSchedulerState {
 }
 
 impl FreeRtosUtils {
+    /// Start scheduling tasks.
     pub fn start_scheduler() -> ! {
         unsafe { vTaskStartScheduler() };
         unreachable!()
     }
 
+    /// Get the current scheduler state.
     pub fn scheduler_state() -> FreeRtosSchedulerState {
       unsafe {
         match xTaskGetSchedulerState() {
@@ -455,7 +466,7 @@ impl FreeRtosUtils {
 
         unsafe {
             let filled = uxTaskGetSystemState(
-                tasks.as_mut_ptr(),
+                MaybeUninit::slice_as_mut_ptr(tasks.spare_capacity_mut()),
                 tasks_len as FreeRtosUBaseType,
                 &mut total_run_time,
             );
@@ -464,18 +475,22 @@ impl FreeRtosUtils {
 
         let tasks = tasks
             .into_iter()
-            .map(|t| FreeRtosTaskStatus {
-                task: Task {
-                    handle: unsafe { NonNull::new_unchecked(t.xHandle) },
-                },
-                name: unsafe { str_from_c_string(t.pcTaskName) }
-                    .unwrap_or_else(|_| String::from("?")),
-                task_number: t.xTaskNumber,
-                task_state: t.eCurrentState.into(),
-                current_priority: TaskPriority(t.uxCurrentPriority as u8),
-                base_priority: TaskPriority(t.uxBasePriority as u8),
-                run_time_counter: t.ulRunTimeCounter,
-                stack_high_water_mark: t.usStackHighWaterMark,
+            .map(|t| {
+              let name = unsafe { CStr::from_ptr(t.pcTaskName) };
+              let name = name.to_str().unwrap_or("?");
+
+              FreeRtosTaskStatus {
+                  task: Task {
+                      handle: unsafe { NonNull::new_unchecked(t.xHandle) },
+                  },
+                  name: String::from(name),
+                  task_number: t.xTaskNumber,
+                  task_state: t.eCurrentState.into(),
+                  current_priority: TaskPriority(t.uxCurrentPriority as u8),
+                  base_priority: TaskPriority(t.uxBasePriority as u8),
+                  run_time_counter: t.ulRunTimeCounter,
+                  stack_high_water_mark: t.usStackHighWaterMark,
+              }
             })
             .collect();
 

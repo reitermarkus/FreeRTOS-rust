@@ -1,10 +1,14 @@
+use core::mem;
 use core::ptr::NonNull;
 
-use alloc::ffi::CString;
+use alloc::{
+  ffi::CString,
+  boxed::Box,
+  string::String,
+};
 
 use crate::InterruptContext;
 use crate::base::*;
-use crate::prelude::v1::*;
 use crate::shim::*;
 use crate::units::*;
 use crate::Task;
