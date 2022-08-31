@@ -1,13 +1,14 @@
 use crate::shim::*;
 use core::alloc::{GlobalAlloc, Layout};
 
-/**
-Use with:
-
-    #[global_allocator]
-    static GLOBAL: FreeRtosAllocator = FreeRtosAllocator;
-*/
-
+/// # Usage
+///
+/// ```
+/// use freertos_rust::FreeRtosAllocator;
+///
+/// #[global_allocator]
+/// static ALLOC: FreeRtosAllocator = FreeRtosAllocator;
+/// ```
 pub struct FreeRtosAllocator;
 
 unsafe impl GlobalAlloc for FreeRtosAllocator {

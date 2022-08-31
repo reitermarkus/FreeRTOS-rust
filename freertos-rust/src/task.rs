@@ -52,8 +52,8 @@ impl TaskNotification {
 }
 
 impl TaskPriority {
-    fn to_freertos(&self) -> FreeRtosUBaseType {
-        self.0 as FreeRtosUBaseType
+    fn to_freertos(&self) -> UBaseType_t {
+        self.0.into()
     }
 }
 
@@ -420,12 +420,6 @@ pub enum FreeRtosSchedulerState {
 }
 
 impl FreeRtosUtils {
-    // Should only be used for testing purpose!
-    pub fn invoke_assert() {
-        unsafe {
-            freertos_rs_invoke_configASSERT();
-        }
-    }
     pub fn start_scheduler() -> ! {
         unsafe { vTaskStartScheduler() };
         unreachable!()

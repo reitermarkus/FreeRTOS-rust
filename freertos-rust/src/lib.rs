@@ -57,12 +57,13 @@
 #![allow(non_snake_case)]
 #![feature(allocator_api)]
 #![feature(maybe_uninit_slice, maybe_uninit_uninit_array, const_maybe_uninit_uninit_array)]
+#![feature(c_size_t)]
 
 #[cfg_attr(any(feature = "time", feature = "sync"), macro_use)]
 extern crate alloc;
 
 #[cfg(feature = "hooks")]
-mod hooks;
+pub mod assert;
 mod prelude;
 mod shim;
 
@@ -106,7 +107,7 @@ pub use crate::critical::*;
 #[cfg(feature = "time")]
 pub use crate::delays::*;
 #[cfg(feature = "hooks")]
-pub use crate::hooks::*;
+pub use crate::assert::*;
 #[cfg(feature = "interrupt")]
 pub use crate::isr::*;
 #[cfg(feature = "sync")]

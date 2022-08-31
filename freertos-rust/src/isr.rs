@@ -1,4 +1,3 @@
-use crate::base::*;
 use crate::shim::*;
 
 /// Keep track of whether we need to yield the execution to a different
@@ -8,7 +7,7 @@ use crate::shim::*;
 #[repr(transparent)]
 #[must_use]
 pub struct InterruptContext {
-    x_higher_priority_task_woken: FreeRtosBaseType,
+    x_higher_priority_task_woken: BaseType_t,
 }
 
 impl InterruptContext {
@@ -19,7 +18,7 @@ impl InterruptContext {
         }
     }
 
-    pub fn x_higher_priority_task_woken(&mut self) -> *mut FreeRtosBaseType {
+    pub fn x_higher_priority_task_woken(&mut self) -> *mut BaseType_t {
         &mut self.x_higher_priority_task_woken
     }
 }

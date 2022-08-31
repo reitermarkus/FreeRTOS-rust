@@ -1,13 +1,25 @@
+#include "FreeRTOSConfig.h"
+
+#ifdef configASSERT
+#error "`configASSERT` is redefined by this crate, remove it or use `#ifndef RUST` to disable it."
+#endif
+
+#include <stddef.h>
+
+extern void __rust__vAssertCalled(
+  const char* message, size_t message_len,
+  const char* file_name, size_t file_name_len,
+  size_t line
+);
+#define configASSERT(x) if (!(x)) { \
+  __rust__vAssertCalled(#x, sizeof(#x) - 1, __FILE__, sizeof(__FILE__) - 1, __LINE__); \
+}
+
 #include "FreeRTOS.h"
 #include "task.h"
 #include "timers.h"
 #include "queue.h"
 #include "semphr.h"
-
-// Just for testing
-void freertos_rs_invoke_configASSERT() {
-	configASSERT(0);
-}
 
 uint8_t freertos_rs_sizeof(uint8_t _type) {
 	switch (_type) {
@@ -87,31 +99,6 @@ BaseType_t freertos_rs_task_notify_indexed(TaskHandle_t task, UBaseType_t index,
 BaseType_t freertos_rs_task_notify_indexed_from_isr(TaskHandle_t task, UBaseType_t index, uint32_t value, eNotifyAction eAction, BaseType_t* xHigherPriorityTaskWoken) {
 	return xTaskNotifyIndexedFromISR(task, index, value, eAction, xHigherPriorityTaskWoken);
 }
-
-#if (configUSE_TIMERS == 1)
-
-TimerHandle_t freertos_rs_timer_create(const char * const name, uint8_t name_len, const TickType_t period,
-		uint8_t auto_reload, void * const timer_id, TimerCallbackFunction_t callback)
-{
-	char c_name[configMAX_TASK_NAME_LEN] = {0};
-	for (int i = 0; i < name_len; i++) {
-		c_name[i] = name[i];
-
-		if (i == configMAX_TASK_NAME_LEN - 1) {
-			break;
-		}
-	}
-
-	UBaseType_t timer_auto_reload = pdFALSE;
-	if (auto_reload == 1) {
-		timer_auto_reload = pdTRUE;
-	}
-
-	TimerHandle_t handle = xTimerCreate(c_name, period, timer_auto_reload, timer_id, callback);
-	return handle;
-}
-
-#endif
 
 void freertos_rs_enter_critical() {
 	taskENTER_CRITICAL();

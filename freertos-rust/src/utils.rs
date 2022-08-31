@@ -17,9 +17,6 @@ pub fn cpu_clock_hz() -> u32 {
 /// Perform checks whether the C FreeRTOS shim and Rust agree on the sizes of used types.
 pub fn shim_sanity_check() -> Result<(), TypeSizeError> {
     let checks = [
-        (0, mem::size_of::<FreeRtosVoidPtr>()),
-        (10, mem::size_of::<FreeRtosBaseType>()),
-        (11, mem::size_of::<FreeRtosUBaseType>()),
         (12, mem::size_of::<FreeRtosTickType>()),
         (20, mem::size_of::<FreeRtosTaskHandle>()),
         (21, mem::size_of::<FreeRtosQueueHandle>()),
