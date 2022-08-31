@@ -156,34 +156,38 @@ impl Timer {
 
     /// Start the timer.
     pub fn start<D: DurationTicks>(&self, block_time: D) -> Result<(), FreeRtosError> {
-        unsafe {
-            if xTimerStart(self.handle.as_ptr(), block_time.to_ticks()) == pdPASS {
-                return Ok(())
-            }
+        let res = unsafe {
+          xTimerStart(self.handle.as_ptr(), block_time.to_ticks())
+        };
+
+        match res {
+          pdPASS => Ok(()),
+          _ => Err(FreeRtosError::Timeout),
         }
-        Err(FreeRtosError::Timeout)
     }
 
     /// Start the timer from an interrupt.
     pub fn start_from_isr(&self, context: &mut InterruptContext) -> Result<(), FreeRtosError> {
-        unsafe {
-            if xTimerStartFromISR(self.handle.as_ptr(), context.x_higher_priority_task_woken()) == pdPASS {
-                return Ok(())
-            }
-        }
+        let res = unsafe {
+          xTimerStartFromISR(self.handle.as_ptr(), context.x_higher_priority_task_woken())
+        };
 
-        Err(FreeRtosError::QueueSendTimeout)
+        match res {
+          pdPASS => Ok(()),
+          _ => Err(FreeRtosError::Timeout),
+        }
     }
 
     /// Stop the timer.
     pub fn stop<D: DurationTicks>(&self, block_time: D) -> Result<(), FreeRtosError> {
-        unsafe {
-            if xTimerStop(self.handle.as_ptr(), block_time.to_ticks()) == pdPASS {
-                return Ok(())
-            }
-        }
+        let res = unsafe {
+          xTimerStop(self.handle.as_ptr(), block_time.to_ticks())
+        };
 
-        Err(FreeRtosError::Timeout)
+        match res {
+          pdPASS => Ok(()),
+          _ => Err(FreeRtosError::Timeout),
+        }
   }
 
     pub fn is_active(&self) -> bool {
@@ -223,7 +227,6 @@ impl Timer {
 }
 
 impl Drop for Timer {
-    #[allow(unused_must_use)]
     fn drop(&mut self) {
         if self.detached == true {
             return;

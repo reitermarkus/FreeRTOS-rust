@@ -2,8 +2,6 @@
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub enum FreeRtosError {
     OutOfMemory,
-    QueueSendTimeout,
-    QueueReceiveTimeout,
     Timeout,
     QueueFull,
     StringConversionError,
@@ -28,8 +26,6 @@ pub type FreeRtosSemaphoreHandle = *mut CVoid;
 pub type FreeRtosTaskFunction = *const CVoid;
 pub type FreeRtosTimerHandle = *mut CVoid;
 pub type FreeRtosTimerCallback = *const CVoid;
-#[allow(dead_code)]
-pub type FreeRtosStackType = *const CVoid;
 
 pub type FreeRtosUnsignedLong = u32;
 pub type FreeRtosUnsignedShort = u16;

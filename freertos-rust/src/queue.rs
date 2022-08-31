@@ -31,7 +31,19 @@ macro_rules! impl_send {
         /// Send an item to the end of the queue. Wait for the queue to have empty space for it.
         #[inline]
         pub fn send<D: DurationTicks>(&self, item: T, max_wait: D) -> Result<(), FreeRtosError> {
-            unsafe { queue_send(self.handle, item, max_wait) }
+          let res = unsafe {
+            xQueueSend(self.handle.as_ptr(), ptr::addr_of!(item).cast(), max_wait.to_ticks())
+          };
+
+          if res == pdTRUE {
+            return Ok(())
+          }
+
+          match res {
+            pdTRUE => Ok(()),
+            errQUEUE_FULL => Err(FreeRtosError::QueueFull),
+            _ => Err(FreeRtosError::Timeout),
+          }
         }
 
         /// Send an item to the end of the queue, from an interrupt.
@@ -41,7 +53,15 @@ macro_rules! impl_send {
             ic: &mut InterruptContext,
             item: T,
         ) -> Result<(), FreeRtosError> {
-            unsafe { queue_send_from_isr(self.handle, item, ic) }
+          let res = unsafe {
+            xQueueSendFromISR(self.handle.as_ptr(), ptr::addr_of!(item).cast(), ic.x_higher_priority_task_woken())
+          };
+
+          match res {
+            pdTRUE => Ok(()),
+            errQUEUE_FULL => Err(FreeRtosError::QueueFull),
+            _ => unreachable!(),
+          }
         }
     };
 }
@@ -51,7 +71,16 @@ macro_rules! impl_receive {
         /// Wait for an item to be available on the queue.
         #[inline]
         pub fn receive<D: DurationTicks>(&self, max_wait: D) -> Result<T, FreeRtosError> {
-            unsafe { queue_receive(self.handle, max_wait) }
+          let mut item = mem::MaybeUninit::<T>::zeroed();
+
+          let res = unsafe {
+            xQueueReceive(self.handle.as_ptr(), item.as_mut_ptr().cast(), max_wait.to_ticks())
+          };
+
+          match res {
+            pdTRUE => Ok(unsafe { item.assume_init() }),
+            _ => Err(FreeRtosError::Timeout),
+          }
         }
     };
 }
@@ -162,48 +191,4 @@ pub struct Receiver<T> {
 
 impl<T: Sized + Send + Copy> Receiver<T> {
   impl_receive!();
-}
-
-unsafe fn queue_send<T: Sized + Send + Copy, D: DurationTicks>(handle: NonNull<CVoid>, item: T, max_wait: D) -> Result<(), FreeRtosError> {
-    let res = xQueueSend(
-      handle.as_ptr(),
-      ptr::addr_of!(item).cast(),
-      max_wait.to_ticks(),
-    );
-
-    if res == pdTRUE {
-      return Ok(())
-    }
-
-    return Err(FreeRtosError::QueueSendTimeout)
-}
-
-unsafe fn queue_send_from_isr<T: Sized + Send + Copy>(handle: NonNull<CVoid>, item: T, ic: &mut InterruptContext) -> Result<(), FreeRtosError> {
-    let res = xQueueSendFromISR(
-        handle.as_ptr(),
-        ptr::addr_of!(item).cast(),
-        ic.x_higher_priority_task_woken(),
-    );
-
-    if res == pdTRUE {
-      return Ok(())
-    }
-
-    Err(FreeRtosError::QueueFull)
-}
-
-unsafe fn queue_receive<T: Sized + Send + Copy, D: DurationTicks>(handle: NonNull<CVoid>, max_wait: D) -> Result<T, FreeRtosError> {
-  let mut item = mem::MaybeUninit::<T>::zeroed();
-
-  let res = xQueueReceive(
-      handle.as_ptr(),
-      item.as_mut_ptr() as FreeRtosVoidPtr,
-      max_wait.to_ticks(),
-  );
-
-  if res == pdTRUE {
-    return Ok(item.assume_init())
-  }
-
-  Err(FreeRtosError::QueueReceiveTimeout)
 }
