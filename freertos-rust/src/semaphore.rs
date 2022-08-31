@@ -127,24 +127,56 @@ impl<T: SemaphoreImpl> Semaphore<T> {
 
   #[inline]
   pub fn give(&self) -> Result<(), FreeRtosError> {
-    unsafe { semaphore_give(self.handle.as_ptr()) }
+    let res = unsafe {
+      xSemaphoreGive(self.handle.as_ptr())
+    };
+
+    if res == pdTRUE {
+      return Ok(())
+    }
+
+    Err(FreeRtosError::QueueFull)
   }
 
   #[inline]
   pub fn give_from_isr(&self, ic: &mut InterruptContext) -> Result<(), FreeRtosError> {
-    unsafe { semaphore_give_from_isr(self.handle.as_ptr(), ic) }
+    let res = unsafe {
+      xSemaphoreGiveFromISR(self.handle.as_ptr(), ic.x_higher_priority_task_woken())
+    };
+
+    if res == pdTRUE {
+      return Ok(())
+    }
+
+    Err(FreeRtosError::QueueFull)
   }
 
   #[inline]
   pub fn take<D: DurationTicks>(&self, max_wait: D) -> Result<(), FreeRtosError> {
-    unsafe { semaphore_take(self.handle.as_ptr(), max_wait) }
+    let res = unsafe {
+      xSemaphoreTake(self.handle.as_ptr(), max_wait.to_ticks())
+    };
+
+    if res == pdTRUE {
+      return Ok(())
+    }
+
+    Err(FreeRtosError::Timeout)
   }
 
   pub fn take_from_isr(&self, ic: &mut InterruptContext) -> Result<(), FreeRtosError> {
-    unsafe { semaphore_take_from_isr(self.handle.as_ptr(), ic) }
+    let res = unsafe {
+      xSemaphoreTakeFromISR(self.handle.as_ptr(), ic.x_higher_priority_task_woken())
+    };
+
+    if res == pdTRUE {
+      return Ok(())
+    }
+
+    Err(FreeRtosError::QueueFull)
   }
 
-  /// Lock this semaphore in a RAII fashion
+  /// Lock this semaphore in RAII fashion.
   pub fn lock<D: DurationTicks>(&self, max_wait: D) -> Result<SemaphoreGuard<'_>, FreeRtosError> {
       self.take(max_wait)?;
 
@@ -161,46 +193,6 @@ pub struct SemaphoreGuard<'s> {
 
 impl Drop for SemaphoreGuard<'_> {
     fn drop(&mut self) {
-        let _ = unsafe { semaphore_give(self.handle) };
+        unsafe { xSemaphoreGive(self.handle) };
     }
-}
-
-unsafe fn semaphore_give(handle: *mut CVoid) -> Result<(), FreeRtosError> {
-    let res = xSemaphoreGive(handle);
-
-    if res == pdTRUE {
-      return Ok(())
-    }
-
-    Err(FreeRtosError::QueueFull)
-}
-
-unsafe fn semaphore_give_from_isr(handle: *mut CVoid, ic: &mut InterruptContext) -> Result<(), FreeRtosError> {
-    let res = xSemaphoreGiveFromISR(handle, ic.x_higher_priority_task_woken());
-
-    if res == pdTRUE {
-      return Ok(())
-    }
-
-    Err(FreeRtosError::QueueFull)
-}
-
-unsafe fn semaphore_take<D: DurationTicks>(handle: *mut CVoid, max_wait: D) -> Result<(), FreeRtosError> {
-    let res = xSemaphoreTake(handle, max_wait.to_ticks());
-
-    if res == pdTRUE {
-      return Ok(())
-    }
-
-    Err(FreeRtosError::Timeout)
-}
-
-unsafe fn semaphore_take_from_isr(handle: *mut CVoid, ic: &mut InterruptContext) -> Result<(), FreeRtosError> {
-  let res = xSemaphoreTakeFromISR(handle, ic.x_higher_priority_task_woken());
-
-  if res == pdTRUE {
-    return Ok(())
-  }
-
-  Err(FreeRtosError::QueueFull)
 }
