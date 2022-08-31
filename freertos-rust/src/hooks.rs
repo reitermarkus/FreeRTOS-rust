@@ -1,3 +1,5 @@
+use core::ffi::c_char;
+
 use crate::base::*;
 use crate::prelude::v1::String;
 use crate::utils::*;
@@ -23,7 +25,7 @@ pub static mut FREERTOS_HOOKS: FreeRtosHooks = FreeRtosHooks { on_assert: || {} 
 
 #[allow(unused_doc_comments)]
 #[no_mangle]
-pub extern "C" fn vAssertCalled(file_name_ptr: FreeRtosCharPtr, line: FreeRtosUBaseType) {
+pub extern "C" fn vAssertCalled(file_name_ptr: *const c_char, line: FreeRtosUBaseType) {
     let file_name: String;
     unsafe {
         file_name = str_from_c_string(file_name_ptr).unwrap();

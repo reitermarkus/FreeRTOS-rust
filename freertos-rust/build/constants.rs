@@ -18,6 +18,11 @@ pub fn write_to_file(f: &mut File) -> io::Result<()> {
     ("BaseType_t",  "pdFAIL"),
     ("BaseType_t",  "pdTRUE"),
     ("BaseType_t",  "pdPASS"),
+    ("BaseType_t",  "errQUEUE_FULL"),
+    ("BaseType_t",  "errQUEUE_EMPTY"),
+    ("BaseType_t",  "errCOULD_NOT_ALLOCATE_REQUIRED_MEMORY"),
+    ("BaseType_t",  "errQUEUE_BLOCKED"),
+    ("BaseType_t",  "errQUEUE_YIELD"),
     ("BaseType_t",  "tmrCOMMAND_DELETE"),
     ("BaseType_t",  "tmrCOMMAND_START"),
     ("BaseType_t",  "tmrCOMMAND_START_FROM_ISR"),
@@ -32,7 +37,7 @@ pub fn write_to_file(f: &mut File) -> io::Result<()> {
   ];
 
   for (ty, name) in constants {
-    let name_undef = format!("{name}_UNDEF");
+    let name_undef = format!("__{name}_UNDEF__");
 
     writeln!(f, "#ifdef {name}")?;
     writeln!(f, "static const {ty} {name_undef} = {name};")?;

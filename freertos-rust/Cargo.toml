@@ -32,8 +32,6 @@ heap_3 = []
 heap_4 = []
 
 [dependencies]
-cty = "0.2.2"
-const-zero = "0.1"
 
 [build-dependencies]
 freertos-cargo-build = { path = "../freertos-cargo-build" }

@@ -1,3 +1,4 @@
+use core::ffi::CStr;
 use core::mem::MaybeUninit;
 use core::mem::size_of;
 use core::ptr::NonNull;
@@ -127,12 +128,10 @@ impl<T: Sized + Send + Copy> Queue<T> {
     }
 
     /// Assign a name to the queue and add it to the registry.
-    pub fn add_to_registry(&self, name: &str) {
-      let mut c_name = [0; configMAX_TASK_NAME_LEN as usize];
-      let bytes = name.as_bytes();
-      assert!(bytes.len() < configMAX_TASK_NAME_LEN as usize);
-      c_name[..bytes.len()].copy_from_slice(bytes);
-      unsafe { vQueueAddToRegistry(self.handle.as_ptr(), c_name.as_ptr()) }
+    pub fn add_to_registry(&self, name: &'static CStr) {
+      unsafe {
+        vQueueAddToRegistry(self.handle.as_ptr(), name.as_ptr())
+      }
     }
 
     pub const unsafe fn from_raw_handle(handle: FreeRtosQueueHandle) -> Self {

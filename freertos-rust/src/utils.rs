@@ -9,6 +9,7 @@ pub struct TypeSizeError {
     rust_size: usize,
 }
 
+#[inline(always)]
 pub fn cpu_clock_hz() -> u32 {
   unsafe { freertos_rs_get_configCPU_CLOCK_HZ() }
 }
@@ -17,8 +18,6 @@ pub fn cpu_clock_hz() -> u32 {
 pub fn shim_sanity_check() -> Result<(), TypeSizeError> {
     let checks = [
         (0, mem::size_of::<FreeRtosVoidPtr>()),
-        (1, mem::size_of::<FreeRtosCharPtr>()),
-        (2, mem::size_of::<FreeRtosChar>()),
         (10, mem::size_of::<FreeRtosBaseType>()),
         (11, mem::size_of::<FreeRtosUBaseType>()),
         (12, mem::size_of::<FreeRtosTickType>()),
@@ -28,7 +27,6 @@ pub fn shim_sanity_check() -> Result<(), TypeSizeError> {
         (23, mem::size_of::<FreeRtosTaskFunction>()),
         (24, mem::size_of::<FreeRtosTimerHandle>()),
         (25, mem::size_of::<FreeRtosTimerCallback>()),
-        (30, mem::size_of::<FreeRtosTaskStatusFfi>()),
         (31, mem::size_of::<FreeRtosTaskState>()),
         (32, mem::size_of::<FreeRtosUnsignedLong>()),
         (33, mem::size_of::<FreeRtosUnsignedShort>()),
@@ -50,7 +48,7 @@ pub fn shim_sanity_check() -> Result<(), TypeSizeError> {
 }
 
 #[cfg(any(feature = "time", feature = "hooks", feature = "sync"))]
-pub unsafe fn str_from_c_string(str: *const u8) -> Result<String, FreeRtosError> {
+pub unsafe fn str_from_c_string(str: *const core::ffi::c_char) -> Result<String, FreeRtosError> {
     let mut buf = Vec::new();
 
     let mut p = str;
@@ -58,7 +56,7 @@ pub unsafe fn str_from_c_string(str: *const u8) -> Result<String, FreeRtosError>
         if *p == 0 {
             break;
         }
-        buf.push(*p);
+        buf.push(*p as u8);
         p = p.offset(1);
     }
 

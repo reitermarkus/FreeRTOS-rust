@@ -20,7 +20,6 @@ uint8_t freertos_rs_sizeof(uint8_t _type) {
 		case 2:
 			return sizeof(char);
 			break;
-
 		case 10:
 			return sizeof(BaseType_t);
 			break;
@@ -30,7 +29,6 @@ uint8_t freertos_rs_sizeof(uint8_t _type) {
 		case 12:
 			return sizeof(TickType_t);
 			break;
-
 		case 20:
 			return sizeof(TaskHandle_t);
 			break;
@@ -49,7 +47,6 @@ uint8_t freertos_rs_sizeof(uint8_t _type) {
 		case 25:
 			return sizeof(TimerCallbackFunction_t);
 			break;
-
 		case 30:
 			return sizeof(TaskStatus_t);
 			break;
@@ -62,9 +59,6 @@ uint8_t freertos_rs_sizeof(uint8_t _type) {
 		case 33:
 			return sizeof(unsigned short);
 			break;
-
-
-			break;
 		default:
 			return 0;
 	}
@@ -72,27 +66,6 @@ uint8_t freertos_rs_sizeof(uint8_t _type) {
 
 unsigned long freertos_rs_get_configCPU_CLOCK_HZ() {
   return configCPU_CLOCK_HZ;
-}
-
-UBaseType_t freertos_rs_spawn_task(TaskFunction_t entry_point, void* pvParameters, const char * const name, uint8_t name_len, uint16_t stack_size, UBaseType_t priority, TaskHandle_t *const task_handle) {
-	char c_name[configMAX_TASK_NAME_LEN] = {0};
-	for (int i = 0; i < name_len; i++) {
-		c_name[i] = name[i];
-
-		if (i == configMAX_TASK_NAME_LEN - 1) {
-			break;
-		}
-	}
-
-	BaseType_t ret = xTaskCreate(entry_point, c_name, stack_size, pvParameters, priority, task_handle);
-
-	if (ret != pdPASS) {
-		return 1;
-	}
-
-	configASSERT(task_handle);
-
-	return 0;
 }
 
 UBaseType_t freertos_rs_get_stack_high_water_mark(TaskHandle_t task) {

@@ -1,4 +1,7 @@
+use core::ffi::CStr;
 use core::ptr::NonNull;
+
+use alloc::ffi::CString;
 
 use crate::base::*;
 use crate::isr::*;
@@ -136,48 +139,56 @@ impl Task {
         stack_size: u16,
         priority: TaskPriority,
     ) -> Result<Task, FreeRtosError> {
+        let name = name.as_bytes();
+        let mut c_name = [0; configMAX_TASK_NAME_LEN as usize];
+        let name_len = name.len().min(c_name.len() - 1);
+        c_name[..name_len].copy_from_slice(&name[..name_len]);
+
         let f = Box::new(f);
         let param_ptr = &*f as *const _ as *mut _;
 
-        let task_handle = {
-            let name = name.as_bytes();
-            let name_len = name.len();
-            let mut task_handle = ptr::null_mut();
+        let mut task_handle = ptr::null_mut();
 
-            let ret = freertos_rs_spawn_task(
-                Some(thread_start),
-                param_ptr,
-                name.as_ptr(),
-                name_len as u8,
-                stack_size,
-                priority.to_freertos(),
-                &mut task_handle,
-            );
-
-            if ret != 0 || task_handle.is_null() {
-                return Err(FreeRtosError::OutOfMemory)
-            }
-
-            mem::forget(f);
-            NonNull::new_unchecked(task_handle)
-        };
-
-        unsafe extern "C" fn thread_start(main: *mut CVoid) {
+        extern "C" fn thread_start(main: *mut CVoid) {
             unsafe {
                 {
                     let b = Box::from_raw(main as *mut Box<dyn FnOnce(Task)>);
-                    b(Task {
-                        handle: NonNull::new_unchecked(xTaskGetCurrentTaskHandle()),
-                    });
+
+                    let task = Task {
+                      handle: NonNull::new_unchecked(xTaskGetCurrentTaskHandle()),
+                    };
+                    b(task);
+
+                    let task_name_ptr = pcTaskGetName(ptr::null_mut());
+                    let task_name = CString::from_raw(task_name_ptr);
+                    drop(task_name);
                 }
 
                 vTaskDelete(ptr::null_mut());
             }
         }
 
-        Ok(Task {
-            handle: task_handle,
-        })
+        let ret = unsafe {
+          xTaskCreate(
+            Some(thread_start),
+            name.as_ptr().cast(),
+            stack_size,
+            param_ptr,
+            priority.to_freertos(),
+            &mut task_handle,
+          )
+        };
+
+        match ret {
+          pdPASS if !task_handle.is_null() => {
+            mem::forget(f);
+            mem::forget(name);
+
+            Ok(Task::from_raw_handle(task_handle))
+          },
+          errCOULD_NOT_ALLOCATE_REQUIRED_MEMORY => Err(FreeRtosError::OutOfMemory),
+          _ => unreachable!(),
+        }
     }
 
     fn spawn<F>(
@@ -196,15 +207,11 @@ impl Task {
     }
 
     /// Get the name of the current task.
-    pub fn get_name(&self) -> Result<String, ()> {
+    pub fn get_name(&self) -> &CStr {
         unsafe {
-            let name_ptr = pcTaskGetName(self.handle.as_ptr());
-            let name = str_from_c_string(name_ptr);
-            if let Ok(name) = name {
-                return Ok(name);
-            }
-
-            Err(())
+            let task_name = pcTaskGetName(self.handle.as_ptr());
+            assert!(!task_name.is_null());
+            CStr::from_ptr(task_name)
         }
     }
 

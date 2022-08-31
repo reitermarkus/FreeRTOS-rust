@@ -22,10 +22,7 @@ impl TaskDelay {
     /// minus the time spent in this task since the last delay.
     pub fn delay_until<D: DurationTicks>(&mut self, delay: D) {
         unsafe {
-          vTaskDelayUntil(
-                &mut self.last_wake_time as *mut FreeRtosTickType,
-                delay.to_ticks(),
-            );
+          vTaskDelayUntil(&mut self.last_wake_time, delay.to_ticks())
         }
     }
 }

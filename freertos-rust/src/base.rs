@@ -10,11 +10,9 @@ pub enum FreeRtosError {
     ProcessorHasShutDown,
 }
 
-pub type CVoid = cty::c_void;
+pub type CVoid = core::ffi::c_void;
 
 pub type FreeRtosVoidPtr = *mut CVoid;
-pub type FreeRtosCharPtr = *const u8;
-pub type FreeRtosChar = u8;
 
 pub type FreeRtosBaseType = i32;
 pub type FreeRtosUBaseType = u32;
@@ -29,20 +27,6 @@ pub type FreeRtosTimerCallback = *const CVoid;
 
 pub type FreeRtosUnsignedLong = u32;
 pub type FreeRtosUnsignedShort = u16;
-
-#[derive(Copy, Clone, Debug)]
-#[repr(C)]
-pub struct FreeRtosTaskStatusFfi {
-    pub handle: FreeRtosTaskHandle,
-    pub task_name: FreeRtosCharPtr,
-    pub task_number: FreeRtosUBaseType,
-    pub task_state: FreeRtosTaskState,
-    pub current_priority: FreeRtosUBaseType,
-    pub base_priority: FreeRtosUBaseType,
-    pub run_time_counter: FreeRtosUnsignedLong,
-    pub stack_base: FreeRtosCharPtr,
-    pub stack_high_water_mark: FreeRtosUnsignedShort,
-}
 
 #[derive(Copy, Clone, Debug, PartialEq)]
 #[repr(u8)]

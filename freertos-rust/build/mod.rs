@@ -265,7 +265,7 @@ fn variable_type(macro_name: &str, variable_name: &str) -> Option<&'static str> 
     "pxHigherPriorityTaskWoken" | "pxYieldPending" => "*mut BaseType_t",
     "uxQueueLength" | "uxItemSize" | "uxMaxCount" | "uxInitialCount" |
     "uxTopPriority" | "uxPriority" | "uxReadyPriorities" => "UBaseType_t",
-    "pvItemToQueue" => "*const ::cty::c_void",
+    "pvItemToQueue" => "*const ::core::ffi::c_void",
     "xMutex" | "xQueue" => "QueueHandle_t",
     "xSemaphore" => "SemaphoreHandle_t",
     "xBlockTime" | "xTicksToWait" | "xNewPeriod" | "xExpectedIdleTime" => "TickType_t",
@@ -274,7 +274,7 @@ fn variable_type(macro_name: &str, variable_name: &str) -> Option<&'static str> 
     "eAction" => "eNotifyAction",
     "ulValue" => "u32",
     "pulPreviousNotificationValue" | "pulPreviousNotifyValue" => "*mut u32",
-    "pvTaskToDelete" | "pvBuffer" => "*mut ::cty::c_void",
+    "pvTaskToDelete" | "pvBuffer" => "*mut ::core::ffi::c_void",
     "pucQueueStorage" => "*mut u8",
     "pxQueueBuffer" => "*mut StaticQueue_t",
     "pxSemaphoreBuffer" | "pxMutexBuffer" | "pxStaticSemaphore" => "*mut StaticSemaphore_t",
@@ -489,7 +489,7 @@ fn main() {
 
       bindgen::builder()
           .use_core()
-          .ctypes_prefix("::cty")
+          .ctypes_prefix("::core::ffi")
           .clang_arg(format!("-I{}", freertos_source.join("include").display()))
           .clang_arg(format!("-I{}", freertos_config.display()))
           .clang_arg(format!("-I{}", freertos_builder.get_freertos_port_dir().display()))

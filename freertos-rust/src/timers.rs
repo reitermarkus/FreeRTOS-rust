@@ -1,5 +1,7 @@
 use core::ptr::NonNull;
 
+use alloc::ffi::CString;
+
 use crate::InterruptContext;
 use crate::base::*;
 use crate::prelude::v1::*;
@@ -94,30 +96,14 @@ impl Timer {
         auto_reload: bool,
         callback: Box<dyn Fn(Timer) + Send + 'a>,
     ) -> Result<Timer, FreeRtosError> {
+        let name = if let Ok(name) = CString::new(name) {
+          name.into_boxed_c_str()
+        } else {
+          return Err(FreeRtosError::StringConversionError)
+        };
+
         let f = Box::new(callback);
         let param_ptr = &*f as *const _ as *mut _;
-
-        let timer_handle = {
-            let name = name.as_bytes();
-            let name_len = name.len();
-
-            let ret = freertos_rs_timer_create(
-                name.as_ptr(),
-                name_len as u8,
-                period_ticks,
-                if auto_reload { 1 } else { 0 },
-                param_ptr,
-                Some(timer_callback),
-            );
-
-            match NonNull::new(ret) {
-              Some(handle) => {
-                mem::forget(f);
-                handle
-              },
-              None => return Err(FreeRtosError::OutOfMemory)
-            }
-        };
 
         extern "C" fn timer_callback(handle: FreeRtosTimerHandle) -> () {
             unsafe {
@@ -126,19 +112,33 @@ impl Timer {
                         handle: NonNull::new_unchecked(handle),
                         detached: true,
                     };
-                    if let Ok(callback_ptr) = timer.get_id() {
-                        let b = Box::from_raw(callback_ptr as *mut Box<dyn Fn(Timer)>);
-                        b(timer);
-                        Box::into_raw(b);
-                    }
+                    let callback_ptr = pvTimerGetTimerID(handle);
+                    let b = Box::from_raw(callback_ptr as *mut Box<dyn Fn(Timer)>);
+                    b(timer);
+                    Box::into_raw(b);
                 }
             }
         }
 
-        Ok(Timer {
-            handle: timer_handle,
-            detached: false,
-        })
+        let timer_handle = unsafe {
+          xTimerCreate(
+            name.as_ptr(),
+            period_ticks,
+            if auto_reload { pdTRUE } else { pdFALSE } as _,
+            param_ptr,
+            Some(timer_callback),
+          )
+        };
+
+        match NonNull::new(timer_handle) {
+          Some(handle) => {
+            mem::forget(f);
+            mem::forget(name);
+
+            Ok(Timer { handle, detached: false })
+          },
+          None => Err(FreeRtosError::OutOfMemory)
+        }
     }
 
     fn spawn<F>(
@@ -220,10 +220,6 @@ impl Timer {
     pub unsafe fn detach(mut self) {
         self.detached = true;
     }
-
-    fn get_id(&self) -> Result<FreeRtosVoidPtr, FreeRtosError> {
-        unsafe { Ok(pvTimerGetTimerID(self.handle.as_ptr())) }
-    }
 }
 
 impl Drop for Timer {
@@ -233,13 +229,16 @@ impl Drop for Timer {
         }
 
         unsafe {
-            if let Ok(callback_ptr) = self.get_id() {
-                // free the memory
-                Box::from_raw(callback_ptr as *mut Box<dyn Fn(Timer)>);
-            }
+            let task_name_ptr = pcTimerGetName(self.handle.as_ptr());
+            let task_name = CString::from_raw(task_name_ptr.cast_mut());
 
-            // todo: configurable timeout?
-            xTimerDelete(self.handle.as_ptr(), Duration::ms(1000).to_ticks());
+            let callback_ptr = pvTimerGetTimerID(self.handle.as_ptr());
+            let callback = Box::from_raw(callback_ptr as *mut Box<dyn Fn(Timer)>);
+
+            xTimerDelete(self.handle.as_ptr(), Duration::infinite().to_ticks());
+
+            drop(task_name);
+            drop(callback);
         }
     }
 }
