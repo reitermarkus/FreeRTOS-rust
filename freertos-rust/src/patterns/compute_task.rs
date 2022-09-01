@@ -16,7 +16,7 @@ pub trait ComputeTaskBuilder {
         R: Sync + Send + 'static;
 }
 
-impl ComputeTaskBuilder for TaskBuilder {
+impl ComputeTaskBuilder for TaskBuilder<'_> {
     #[cfg(target_os = "none")]
     /// Spawn a task that can post a return value to the outside.
     fn compute<F, R>(&self, func: F) -> Result<ComputeTask<R>, FreeRtosError>

@@ -7,7 +7,7 @@ use std::path::PathBuf;
 use std::process::exit;
 use std::sync::{Mutex, Arc};
 
-use bindgen::callbacks::ParseCallbacks;
+use bindgen::callbacks::{ParseCallbacks, IntKind};
 
 mod constants;
 
@@ -358,6 +358,14 @@ struct Callbacks {
 }
 
 impl ParseCallbacks for Callbacks {
+  fn int_macro(&self, name: &str, _value: i64) -> Option<IntKind> {
+    if name == "configMAX_PRIORITIES" {
+      return Some(IntKind::U8)
+    }
+
+    None
+  }
+
   fn func_macro(&self, name: &str, value: &[&[u8]]) {
     use std::fmt::Write;
 

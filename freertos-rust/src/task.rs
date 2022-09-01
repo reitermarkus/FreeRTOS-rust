@@ -1,5 +1,4 @@
 use core::ffi::CStr;
-use core::ffi::c_char;
 use core::ffi::c_ulong;
 use core::ffi::c_ushort;
 use core::ffi::c_void;
@@ -8,8 +7,6 @@ use core::mem;
 use core::mem::MaybeUninit;
 use core::ptr;
 use core::ptr::NonNull;
-use core::sync::atomic::AtomicPtr;
-use core::sync::atomic::Ordering;
 
 #[cfg(feature = "alloc")]
 use alloc::{
@@ -24,8 +21,18 @@ use crate::isr::*;
 use crate::shim::*;
 use crate::units::*;
 
+mod builder;
+pub use builder::TaskBuilder;
 mod name;
 use name::TaskName;
+mod notification;
+pub use notification::TaskNotification;
+mod priority;
+pub use priority::TaskPriority;
+mod scheduler;
+pub use scheduler::SchedulerState;
+mod stack_overflow_hook;
+pub use stack_overflow_hook::set_stack_overflow_hook;
 mod state;
 pub use state::TaskState;
 
@@ -37,99 +44,13 @@ pub struct Task {
 
 unsafe impl Send for Task {}
 
-/// Task's execution priority. Low priority numbers denote low priority tasks.
-#[derive(Debug, Copy, Clone)]
-pub struct TaskPriority(pub u8);
-
-/// Notification to be sent to a task.
-#[derive(Debug, Copy, Clone)]
-pub enum TaskNotification {
-    /// Send the event, unblock the task, the task's notification value isn't changed.
-    NoAction,
-    /// Perform a logical or with the task's notification value.
-    SetBits(u32),
-    /// Increment the task's notification value by one.
-    Increment,
-    /// Set the task's notification value to this value.
-    OverwriteValue(u32),
-    /// Try to set the task's notification value to this value. Succeeds
-    /// only if the task has no pending notifications. Otherwise, the
-    /// notification call will fail.
-    SetValue(u32),
-}
-
-impl TaskNotification {
-    fn to_freertos(&self) -> (UBaseType_t, eNotifyAction) {
-        match *self {
-            TaskNotification::NoAction => (0, eNotifyAction_eNoAction),
-            TaskNotification::SetBits(v) => (v, eNotifyAction_eSetBits),
-            TaskNotification::Increment => (0, eNotifyAction_eIncrement),
-            TaskNotification::OverwriteValue(v) => (v, eNotifyAction_eSetValueWithOverwrite),
-            TaskNotification::SetValue(v) => (v, eNotifyAction_eSetValueWithoutOverwrite),
-        }
-    }
-}
-
-impl TaskPriority {
-    fn to_freertos(&self) -> UBaseType_t {
-        self.0.into()
-    }
-}
-
-/// Helper for spawning a new task. Instantiate with [`Task::new()`].
-///
-/// [`Task::new()`]: struct.Task.html#method.new
-pub struct TaskBuilder {
-    task_name: String,
-    task_stack_size: u16,
-    task_priority: TaskPriority,
-}
-
-impl TaskBuilder {
-    /// Set the task's name.
-    pub fn name(&mut self, name: &str) -> &mut Self {
-        self.task_name = name.into();
-        self
-    }
-
-    /// Set the stack size, in words.
-    pub fn stack_size(&mut self, stack_size: u16) -> &mut Self {
-        self.task_stack_size = stack_size;
-        self
-    }
-
-    /// Set the task's priority.
-    pub fn priority(&mut self, priority: TaskPriority) -> &mut Self {
-        self.task_priority = priority;
-        self
-    }
-
-    /// Start a new task that can't return a value.
-    pub fn start<F>(&self, func: F) -> Result<Task, FreeRtosError>
-    where
-        F: FnOnce(Task) -> (),
-        F: Send + 'static,
-    {
-        Task::spawn(
-            &self.task_name,
-            self.task_stack_size,
-            self.task_priority,
-            func,
-        )
-    }
-}
-
 impl Task {
     /// Minimal task stack size.
     pub const MINIMAL_STACK_SIZE: u16 = configMINIMAL_STACK_SIZE;
 
     /// Prepare a builder object for the new task.
-    pub fn new() -> TaskBuilder {
-        TaskBuilder {
-            task_name: "rust_task".into(),
-            task_stack_size: 1024,
-            task_priority: TaskPriority(1),
-        }
+    pub const fn new() -> TaskBuilder<'static> {
+      TaskBuilder::new()
     }
 
     pub unsafe fn from_raw_handle(handle: TaskHandle_t) -> Self {
@@ -150,6 +71,19 @@ impl Task {
         unsafe { vTaskResume(self.handle.as_ptr()) }
     }
 
+    /// Start scheduling tasks.
+    pub fn start_scheduler() -> ! {
+      unsafe { vTaskStartScheduler() };
+      unreachable!()
+    }
+
+    /// Get the current scheduler state.
+    pub fn scheduler_state() -> SchedulerState {
+      SchedulerState::from_freertos(unsafe {
+        xTaskGetSchedulerState()
+      })
+    }
+
     /// Suspend the scheduler without disabling interrupts.
     pub fn suspend_all() {
       unsafe { vTaskSuspendAll() }
@@ -162,19 +96,27 @@ impl Task {
         unsafe { xTaskResumeAll() == pdTRUE }
     }
 
+    pub(crate) fn spawn<F>(
+      name: &str,
+      stack_size: u16,
+      priority: TaskPriority,
+      f: F,
+    ) -> Result<Task, FreeRtosError>
+    where
+        F: FnOnce(Task) -> (),
+        F: Send + 'static,
+    {
+        unsafe {
+            Task::spawn_inner(Box::new(f), name, stack_size, priority)
+        }
+    }
+
     unsafe fn spawn_inner<'a>(
         f: Box<dyn FnOnce(Task)>,
         name: &str,
         stack_size: u16,
         priority: TaskPriority,
     ) -> Result<Task, FreeRtosError> {
-        let task_name = TaskName::<{ configMAX_TASK_NAME_LEN as usize }>::new(name);
-
-        let f = Box::new(f);
-        let param_ptr = &*f as *const _ as *mut _;
-
-        let mut task_handle = ptr::null_mut();
-
         extern "C" fn thread_start(main: *mut c_void) {
             unsafe {
                 // NOTE: New scope so that everything is dropped before the task is deleted.
@@ -196,6 +138,13 @@ impl Task {
             }
         }
 
+        let task_name = TaskName::<{ configMAX_TASK_NAME_LEN as usize }>::new(name);
+
+        let f = Box::new(f);
+        let param_ptr = &*f as *const _ as *mut _;
+
+        let mut task_handle = ptr::null_mut();
+
         let ret = unsafe {
           xTaskCreate(
             Some(thread_start),
@@ -216,21 +165,6 @@ impl Task {
           },
           errCOULD_NOT_ALLOCATE_REQUIRED_MEMORY => Err(FreeRtosError::OutOfMemory),
           _ => unreachable!(),
-        }
-    }
-
-    fn spawn<F>(
-        name: &str,
-        stack_size: u16,
-        priority: TaskPriority,
-        f: F,
-    ) -> Result<Task, FreeRtosError>
-    where
-        F: FnOnce(Task) -> (),
-        F: Send + 'static,
-    {
-        unsafe {
-            return Task::spawn_inner(Box::new(f), name, stack_size, priority);
         }
     }
 
@@ -401,7 +335,7 @@ impl fmt::Display for FreeRtosSystemState {
                    id = task.task_number,
                    name = task.name,
                    state = format!("{:?}", task.task_state),
-                   priority = task.current_priority.0,
+                   priority = task.current_priority,
                    stack = task.stack_high_water_mark,
                    cpu_abs = task.run_time_counter,
                    cpu_rel = if self.total_run_time > 0 && task.run_time_counter <= self.total_run_time {
@@ -440,31 +374,7 @@ pub struct FreeRtosTaskStatus {
 
 pub struct FreeRtosUtils;
 
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum FreeRtosSchedulerState {
-  Suspended,
-  NotStarted,
-  Running
-}
-
 impl FreeRtosUtils {
-    /// Start scheduling tasks.
-    pub fn start_scheduler() -> ! {
-        unsafe { vTaskStartScheduler() };
-        unreachable!()
-    }
-
-    /// Get the current scheduler state.
-    pub fn scheduler_state() -> FreeRtosSchedulerState {
-      unsafe {
-        match xTaskGetSchedulerState() {
-          0 => FreeRtosSchedulerState::Suspended,
-          1 => FreeRtosSchedulerState::NotStarted,
-          2 => FreeRtosSchedulerState::Running,
-          _ => unreachable!(),
-        }
-      }
-    }
 
     pub fn get_tick_count() -> TickType_t {
         unsafe { xTaskGetTickCount() }
@@ -505,8 +415,8 @@ impl FreeRtosUtils {
                   name: String::from(name),
                   task_number: t.xTaskNumber,
                   task_state: t.eCurrentState.into(),
-                  current_priority: TaskPriority(t.uxCurrentPriority as u8),
-                  base_priority: TaskPriority(t.uxBasePriority as u8),
+                  current_priority: unsafe { TaskPriority::new_unchecked(t.uxCurrentPriority as u8) },
+                  base_priority: unsafe { TaskPriority::new_unchecked(t.uxBasePriority as u8) },
                   run_time_counter: t.ulRunTimeCounter,
                   stack_high_water_mark: t.usStackHighWaterMark,
               }
@@ -518,40 +428,4 @@ impl FreeRtosUtils {
             total_run_time: total_run_time,
         }
     }
-}
-
-
-type StackOverflowHookFunction = fn(&Task, &str);
-
-static STACK_OVERFLOW_HOOK_FUNCTION: AtomicPtr<StackOverflowHookFunction> = AtomicPtr::new(default_stack_overflow_hook as *mut _);
-
-fn default_stack_overflow_hook(task: &Task, task_name: &str) {
-  panic!("task '{}' ({:?}) has overflowed its stack", task_name, task.as_raw_handle());
-}
-
-/// Set a custom stack overflow hook.
-///
-/// ````
-/// fn my_stack_overflow_hook(task: &Task, task_name: &str) {
-///   panic!("Stack overflow detected in task '{}' at {:?}.", task_name, task.as_raw_handle());
-/// }
-///
-/// freertos_rust::set_stack_overflow_hook(my_stack_overflow_hook);
-/// ```
-pub fn set_stack_overflow_hook(f: fn(&Task, &str)) {
-  STACK_OVERFLOW_HOOK_FUNCTION.store(f as *mut _, Ordering::Release);
-}
-
-#[export_name = "vApplicationStackOverflowHook"]
-extern "C" fn stack_overflow_hook(task_handle: TaskHandle_t, task_name: *const c_char) {
-  unsafe {
-    let task = Task {
-      handle: NonNull::new_unchecked(task_handle),
-    };
-
-    let task_name = CStr::from_ptr(task_name).to_str().unwrap();
-
-    let f: StackOverflowHookFunction = mem::transmute(STACK_OVERFLOW_HOOK_FUNCTION.load(Ordering::Acquire));
-    f(&task, task_name);
-  }
 }
