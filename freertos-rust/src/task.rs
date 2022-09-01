@@ -1,17 +1,13 @@
-use core::ffi::CStr;
-use core::ffi::c_ulong;
-use core::ffi::c_ushort;
-use core::ffi::c_void;
-use core::fmt;
-use core::mem;
-use core::mem::MaybeUninit;
-use core::ptr;
-use core::ptr::NonNull;
+use core::{
+  ffi::{CStr, c_ulong, c_ushort, c_void},
+  fmt,
+  mem::MaybeUninit,
+  ptr::{self, NonNull},
+};
 
 #[cfg(feature = "alloc")]
 use alloc::{
   boxed::Box,
-  ffi::CString,
   string::{String, ToString},
   vec::Vec,
 };
@@ -30,7 +26,7 @@ pub use notification::TaskNotification;
 mod priority;
 pub use priority::TaskPriority;
 mod scheduler;
-pub use scheduler::SchedulerState;
+pub use scheduler::{SchedulerState, Scheduler};
 mod stack_overflow_hook;
 pub use stack_overflow_hook::set_stack_overflow_hook;
 mod state;
@@ -71,31 +67,6 @@ impl Task {
         unsafe { vTaskResume(self.handle.as_ptr()) }
     }
 
-    /// Start scheduling tasks.
-    pub fn start_scheduler() -> ! {
-      unsafe { vTaskStartScheduler() };
-      unreachable!()
-    }
-
-    /// Get the current scheduler state.
-    pub fn scheduler_state() -> SchedulerState {
-      SchedulerState::from_freertos(unsafe {
-        xTaskGetSchedulerState()
-      })
-    }
-
-    /// Suspend the scheduler without disabling interrupts.
-    pub fn suspend_all() {
-      unsafe { vTaskSuspendAll() }
-    }
-
-    /// Resume the scheduler.
-    ///
-    /// Returns `true` if resuming the scheduler caused a context switch.
-    pub fn resume_all() -> bool {
-        unsafe { xTaskResumeAll() == pdTRUE }
-    }
-
     pub(crate) fn spawn<F>(
       name: &str,
       stack_size: u16,
@@ -103,8 +74,7 @@ impl Task {
       f: F,
     ) -> Result<Task, FreeRtosError>
     where
-        F: FnOnce(Task) -> (),
-        F: Send + 'static,
+        F: FnOnce(Task) + Send + 'static,
     {
         unsafe {
             Task::spawn_inner(Box::new(f), name, stack_size, priority)
@@ -117,20 +87,18 @@ impl Task {
         stack_size: u16,
         priority: TaskPriority,
     ) -> Result<Task, FreeRtosError> {
-        extern "C" fn thread_start(main: *mut c_void) {
+        type TaskFunction = Box<dyn FnOnce(Task)>;
+
+        extern "C" fn task_function(param: *mut c_void) {
             unsafe {
                 // NOTE: New scope so that everything is dropped before the task is deleted.
                 {
-                    let b = Box::from_raw(main as *mut Box<dyn FnOnce(Task)>);
+                    let b: Box<TaskFunction> = Box::from_raw(param.cast());
 
                     let task = Task {
                       handle: NonNull::new_unchecked(xTaskGetCurrentTaskHandle()),
                     };
                     b(task);
-
-                    let task_name_ptr = pcTaskGetName(ptr::null_mut());
-                    let task_name = CString::from_raw(task_name_ptr);
-                    drop(task_name);
                 }
 
                 vTaskDelete(ptr::null_mut());
@@ -140,17 +108,16 @@ impl Task {
 
         let task_name = TaskName::<{ configMAX_TASK_NAME_LEN as usize }>::new(name);
 
-        let f = Box::new(f);
-        let param_ptr = &*f as *const _ as *mut _;
+        let param = Box::into_raw(Box::new(f));
 
         let mut task_handle = ptr::null_mut();
 
         let ret = unsafe {
           xTaskCreate(
-            Some(thread_start),
+            Some(task_function),
             task_name.as_ptr().cast(),
             stack_size,
-            param_ptr,
+            param.cast(),
             priority.to_freertos(),
             &mut task_handle,
           )
@@ -158,12 +125,13 @@ impl Task {
 
         match ret {
           pdPASS if !task_handle.is_null() => {
-            mem::forget(f);
-            mem::forget(name);
-
             Ok(Task::from_raw_handle(task_handle))
           },
-          errCOULD_NOT_ALLOCATE_REQUIRED_MEMORY => Err(FreeRtosError::OutOfMemory),
+          errCOULD_NOT_ALLOCATE_REQUIRED_MEMORY => {
+            drop(Box::from_raw(param));
+
+            Err(FreeRtosError::OutOfMemory)
+          },
           _ => unreachable!(),
         }
     }
@@ -293,8 +261,13 @@ impl Task {
     }
 
     /// Get the minimum amount of stack that was ever left on this task.
-    pub fn get_stack_high_water_mark(&self) -> u32 {
-        unsafe { freertos_rs_get_stack_high_water_mark(self.handle.as_ptr()) as u32 }
+    pub fn stack_high_water_mark(&self) -> u32 {
+      unsafe { uxTaskGetStackHighWaterMark(self.handle.as_ptr()) }
+    }
+
+    /// Get the number of existing tasks.
+    pub fn count() -> usize {
+      unsafe { uxTaskGetNumberOfTasks() as usize }
     }
 }
 
@@ -376,20 +349,8 @@ pub struct FreeRtosUtils;
 
 impl FreeRtosUtils {
 
-    pub fn get_tick_count() -> TickType_t {
-        unsafe { xTaskGetTickCount() }
-    }
-
-    pub fn get_tick_count_duration() -> Duration {
-        Duration::ticks(Self::get_tick_count())
-    }
-
-    pub fn get_number_of_tasks() -> usize {
-        unsafe { uxTaskGetNumberOfTasks() as usize }
-    }
-
     pub fn get_all_tasks(tasks_len: Option<usize>) -> FreeRtosSystemState {
-        let tasks_len = tasks_len.unwrap_or(Self::get_number_of_tasks());
+        let tasks_len = tasks_len.unwrap_or(Task::count());
         let mut tasks = Vec::with_capacity(tasks_len as usize);
         let mut total_run_time = 0;
 

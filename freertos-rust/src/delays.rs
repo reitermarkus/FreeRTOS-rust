@@ -1,5 +1,6 @@
+use crate::Scheduler;
+
 use crate::shim::*;
-use crate::task::*;
 use crate::units::*;
 
 /// Delay the current task by the given duration, minus the
@@ -13,7 +14,7 @@ impl TaskDelay {
     /// next measurement.
     pub fn new() -> TaskDelay {
         TaskDelay {
-            last_wake_time: FreeRtosUtils::get_tick_count(),
+            last_wake_time: Scheduler::tick_count(),
         }
     }
 
@@ -39,7 +40,7 @@ pub struct TaskDelayPeriodic {
 impl TaskDelayPeriodic {
     /// Create a new timer with the set period.
     pub fn new<D: DurationTicks>(period: D) -> TaskDelayPeriodic {
-        let l = FreeRtosUtils::get_tick_count();
+        let l = Scheduler::tick_count();
 
         TaskDelayPeriodic {
             last_wake_time: l,
@@ -49,7 +50,7 @@ impl TaskDelayPeriodic {
 
     /// Has the set period passed? If it has, resets the internal timer.
     pub fn should_run(&mut self) -> bool {
-        let c = FreeRtosUtils::get_tick_count();
+        let c = Scheduler::tick_count();
         if (c - self.last_wake_time) < (self.period_ticks) {
             false
         } else {
@@ -65,6 +66,6 @@ impl TaskDelayPeriodic {
 
     /// Reset the internal timer to zero.
     pub fn reset(&mut self) {
-        self.last_wake_time = FreeRtosUtils::get_tick_count();
+        self.last_wake_time = Scheduler::tick_count();
     }
 }

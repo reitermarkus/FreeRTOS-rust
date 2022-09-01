@@ -3,6 +3,11 @@ use crate::shim::{
   taskSCHEDULER_SUSPENDED,
   taskSCHEDULER_NOT_STARTED,
   taskSCHEDULER_RUNNING,
+  vTaskStartScheduler,
+  xTaskGetSchedulerState,
+  vTaskSuspendAll,
+  xTaskResumeAll,
+  pdTRUE, xTaskGetTickCount, TickType_t,
 };
 
 /// State of the FreeRTOS task scheduler.
@@ -24,5 +29,46 @@ impl SchedulerState {
       taskSCHEDULER_RUNNING => SchedulerState::Running,
       _ => unreachable!(),
     }
+  }
+}
+
+/// The FreeRTOS task scheduler.
+#[non_exhaustive]
+pub struct Scheduler;
+
+impl Scheduler {
+  /// Start scheduling tasks.
+  #[inline(always)]
+  pub fn start() -> ! {
+    unsafe { vTaskStartScheduler() };
+    unreachable!()
+  }
+
+  /// Get the current scheduler state.
+  #[inline]
+  pub fn state() -> SchedulerState {
+    SchedulerState::from_freertos(unsafe {
+      xTaskGetSchedulerState()
+    })
+  }
+
+  /// Suspend the scheduler without disabling interrupts.
+  #[inline(always)]
+  pub fn suspend() {
+    unsafe { vTaskSuspendAll() }
+  }
+
+  /// Resume the scheduler.
+  ///
+  /// Returns `true` if resuming the scheduler caused a context switch.
+  #[inline]
+  pub fn resume() -> bool {
+    unsafe { xTaskResumeAll() == pdTRUE }
+  }
+
+  /// Number of ticks since the scheduler was started.
+  #[inline(always)]
+  pub fn tick_count() -> TickType_t {
+    unsafe { xTaskGetTickCount() }
   }
 }

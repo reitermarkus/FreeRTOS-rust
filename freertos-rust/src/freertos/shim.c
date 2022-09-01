@@ -80,14 +80,6 @@ unsigned long freertos_rs_get_configCPU_CLOCK_HZ() {
   return configCPU_CLOCK_HZ;
 }
 
-UBaseType_t freertos_rs_get_stack_high_water_mark(TaskHandle_t task) {
-#if (INCLUDE_uxTaskGetStackHighWaterMark == 1)
-	return uxTaskGetStackHighWaterMark(task);
-#else
-	return 0;
-#endif
-}
-
 void freertos_rs_yield_from_isr(BaseType_t x) {
 	portYIELD_FROM_ISR(x);
 }
