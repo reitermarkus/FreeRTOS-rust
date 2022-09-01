@@ -1,5 +1,8 @@
 use core::ffi::CStr;
 use core::ffi::c_char;
+use core::ffi::c_ulong;
+use core::ffi::c_ushort;
+use core::ffi::c_void;
 use core::fmt;
 use core::mem;
 use core::mem::MaybeUninit;
@@ -16,18 +19,20 @@ use alloc::{
   vec::Vec,
 };
 
-use crate::base::*;
+use crate::error::*;
 use crate::isr::*;
 use crate::shim::*;
 use crate::units::*;
 
 mod name;
 use name::TaskName;
+mod state;
+pub use state::TaskState;
 
 /// Handle for a FreeRTOS task
 #[derive(Debug, Clone)]
 pub struct Task {
-    handle: NonNull<CVoid>,
+    handle: NonNull<c_void>,
 }
 
 unsafe impl Send for Task {}
@@ -160,7 +165,7 @@ impl Task {
 
         let mut task_handle = ptr::null_mut();
 
-        extern "C" fn thread_start(main: *mut CVoid) {
+        extern "C" fn thread_start(main: *mut c_void) {
             unsafe {
                 // NOTE: New scope so that everything is dropped before the task is deleted.
                 {
@@ -177,6 +182,7 @@ impl Task {
                 }
 
                 vTaskDelete(ptr::null_mut());
+                unreachable!();
             }
         }
 
@@ -415,11 +421,11 @@ pub struct FreeRtosTaskStatus {
     pub task: Task,
     pub name: String,
     pub task_number: UBaseType_t,
-    pub task_state: FreeRtosTaskState,
+    pub task_state: TaskState,
     pub current_priority: TaskPriority,
     pub base_priority: TaskPriority,
-    pub run_time_counter: FreeRtosUnsignedLong,
-    pub stack_high_water_mark: FreeRtosUnsignedShort,
+    pub run_time_counter: c_ulong,
+    pub stack_high_water_mark: c_ushort,
 }
 
 pub struct FreeRtosUtils;

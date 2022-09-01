@@ -1,9 +1,10 @@
+use core::ffi::c_void;
 use core::marker::PhantomData;
 use core::mem::MaybeUninit;
 use core::ptr::NonNull;
 
 use crate::lazy_init::{LazyPtr, LazyInit};
-use crate::{base::*, InterruptContext};
+use crate::{error::*, InterruptContext};
 use crate::shim::*;
 use crate::units::*;
 
@@ -39,25 +40,25 @@ pub struct Semaphore<T: SemaphoreImpl> {
 }
 
 impl LazyInit for Binary {
-  fn init() -> NonNull<CVoid> {
+  fn init() -> NonNull<c_void> {
     let ptr = unsafe { xSemaphoreCreateBinary() };
     assert!(!ptr.is_null());
     unsafe { NonNull::new_unchecked(ptr) }
   }
 
-  fn destroy(ptr: NonNull<CVoid>) {
+  fn destroy(ptr: NonNull<c_void>) {
     unsafe { vSemaphoreDelete(ptr.as_ptr()) }
   }
 }
 
 impl<const MAX: u32, const INITIAL: u32> LazyInit for Counting<MAX, INITIAL> {
-  fn init() -> NonNull<CVoid> {
+  fn init() -> NonNull<c_void> {
     let ptr = unsafe { xSemaphoreCreateCounting(MAX, INITIAL) };
     assert!(!ptr.is_null());
     unsafe { NonNull::new_unchecked(ptr) }
   }
 
-  fn destroy(ptr: NonNull<CVoid>) {
+  fn destroy(ptr: NonNull<c_void>) {
     unsafe { vSemaphoreDelete(ptr.as_ptr()) }
   }
 }
@@ -116,12 +117,12 @@ impl<const MAX: u32, const INITIAL: u32> SemaphoreImpl for Counting<MAX, INITIAL
 
 impl<T: SemaphoreImpl> Semaphore<T> {
   #[inline]
-  pub unsafe fn from_raw_handle(handle: FreeRtosSemaphoreHandle) -> Self {
+  pub unsafe fn from_raw_handle(handle: SemaphoreHandle_t) -> Self {
     Self { handle: LazyPtr::new_unchecked(handle) }
   }
 
   #[inline]
-  pub fn as_raw_handle(&self) -> FreeRtosSemaphoreHandle {
+  pub fn as_raw_handle(&self) -> SemaphoreHandle_t {
       self.handle.as_ptr()
   }
 
@@ -187,7 +188,7 @@ impl<T: SemaphoreImpl> Semaphore<T> {
 /// Holds the lock to the semaphore until we are dropped
 #[derive(Debug)]
 pub struct SemaphoreGuard<'s> {
-    handle: *mut CVoid,
+    handle: *mut c_void,
     _lifetime: PhantomData<&'s ()>
 }
 

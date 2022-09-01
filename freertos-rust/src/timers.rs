@@ -1,3 +1,4 @@
+use core::ffi::c_void;
 use core::mem;
 use core::ptr::NonNull;
 
@@ -7,8 +8,8 @@ use alloc::{
   string::String,
 };
 
+use crate::error::FreeRtosError;
 use crate::InterruptContext;
-use crate::base::*;
 use crate::shim::*;
 use crate::units::*;
 use crate::Task;
@@ -22,7 +23,7 @@ unsafe impl Sync for Timer {}
 /// that receives messages in a queue. Every operation has an associated waiting time
 /// for that queue to get unblocked.
 pub struct Timer {
-    handle: NonNull<CVoid>,
+    handle: NonNull<c_void>,
     detached: bool,
 }
 
@@ -70,6 +71,7 @@ impl<D: DurationTicks> TimerBuilder<D> {
 }
 
 impl Timer {
+    /// Stack size of the timer task.
     pub const STACK_SIZE: u16 = configTIMER_TASK_STACK_DEPTH;
 
     /// Create a new timer builder.
@@ -82,11 +84,11 @@ impl Timer {
     }
 
     /// Create a timer from a raw handle.
-    pub unsafe fn from_raw_handle(handle: FreeRtosTimerHandle) -> Self {
+    pub unsafe fn from_raw_handle(handle: TimerHandle_t) -> Self {
         Self { handle: NonNull::new_unchecked(handle), detached: false }
     }
 
-    pub fn as_raw_handle(&self) -> FreeRtosTimerHandle {
+    pub fn as_raw_handle(&self) -> TimerHandle_t {
       self.handle.as_ptr()
     }
 
@@ -109,7 +111,7 @@ impl Timer {
         let f = Box::new(callback);
         let param_ptr = &*f as *const _ as *mut _;
 
-        extern "C" fn timer_callback(handle: FreeRtosTimerHandle) -> () {
+        extern "C" fn timer_callback(handle: TimerHandle_t) -> () {
             unsafe {
                 {
                     let timer = Timer {

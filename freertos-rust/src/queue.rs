@@ -1,9 +1,9 @@
-use core::ffi::CStr;
+use core::ffi::{CStr, c_void};
 use core::marker::PhantomData;
 use core::mem::{MaybeUninit, size_of, self};
 use core::ptr::{self, NonNull};
 
-use crate::base::*;
+use crate::error::*;
 use crate::isr::*;
 use crate::shim::*;
 use crate::units::*;
@@ -89,12 +89,12 @@ macro_rules! impl_receive {
 /// copied.
 #[derive(Debug)]
 pub struct Queue<T> {
-    handle: NonNull<CVoid>,
+    handle: NonNull<c_void>,
     item_type: PhantomData<T>,
 }
 
-unsafe impl<T> Send for Queue<T> {}
-unsafe impl<T> Sync for Queue<T> {}
+unsafe impl<T: Send> Send for Queue<T> {}
+unsafe impl<T: Send> Sync for Queue<T> {}
 
 impl<T: Sized + Send + Copy> Queue<T> {
     pub fn new_static<const LEN: usize>(
@@ -133,14 +133,14 @@ impl<T: Sized + Send + Copy> Queue<T> {
       }
     }
 
-    pub const unsafe fn from_raw_handle(handle: FreeRtosQueueHandle) -> Self {
+    pub const unsafe fn from_raw_handle(handle: QueueHandle_t) -> Self {
       Self {
         handle: NonNull::new_unchecked(handle),
         item_type: PhantomData,
       }
     }
 
-    pub fn as_raw_handle(&self) -> FreeRtosQueueHandle {
+    pub fn as_raw_handle(&self) -> QueueHandle_t {
       self.handle.as_ptr()
     }
 
@@ -173,7 +173,7 @@ impl<T> Drop for Queue<T> {
 
 /// A sender for a queue.
 pub struct Sender<T: Sized + Send + Copy> {
-  handle: NonNull<CVoid>,
+  handle: NonNull<c_void>,
   item_type: PhantomData<T>,
 }
 
@@ -183,7 +183,7 @@ impl<T: Sized + Send + Copy> Sender<T> {
 
 /// A receiver for a queue.
 pub struct Receiver<T> {
-  handle: NonNull<CVoid>,
+  handle: NonNull<c_void>,
   item_type: PhantomData<T>,
 }
 

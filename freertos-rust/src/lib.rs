@@ -62,7 +62,7 @@
 extern crate alloc;
 
 pub mod assert;
-mod base;
+mod error;
 mod shim;
 
 #[cfg(feature = "alloc")]
@@ -95,12 +95,12 @@ mod utils;
 pub mod patterns;
 
 // Internal stuff that is only public for first Proof of Concept
-pub use crate::base::*;
+pub use crate::error::*;
 // ----------
 
 #[cfg(feature = "alloc")]
 pub use crate::allocator::*;
-pub use crate::base::FreeRtosError;
+pub use crate::error::FreeRtosError;
 #[cfg(feature = "time")]
 pub use crate::delays::*;
 pub use crate::assert::*;

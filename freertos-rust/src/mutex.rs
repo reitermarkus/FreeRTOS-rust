@@ -1,12 +1,12 @@
 use core::cell::UnsafeCell;
+use core::ffi::c_void;
 use core::fmt;
 use core::marker::PhantomData;
 use core::ops::{Deref, DerefMut};
 use core::ptr::NonNull;
 
-use crate::base::*;
-use crate::lazy_init::LazyInit;
-use crate::lazy_init::LazyPtr;
+use crate::error::FreeRtosError;
+use crate::lazy_init::{LazyInit, LazyPtr};
 use crate::shim::*;
 use crate::units::*;
 
@@ -17,7 +17,7 @@ pub struct Mutex<T: ?Sized> {
 }
 
 impl LazyInit for Mutex<()> {
-  fn init() -> NonNull<CVoid> {
+  fn init() -> NonNull<c_void> {
     unsafe {
       let ptr = xSemaphoreCreateMutex();
       assert!(!ptr.is_null());
@@ -26,7 +26,7 @@ impl LazyInit for Mutex<()> {
   }
 
   #[inline]
-  fn destroy(ptr: NonNull<CVoid>) {
+  fn destroy(ptr: NonNull<c_void>) {
     unsafe { vSemaphoreDelete(ptr.as_ptr()) }
   }
 }
@@ -41,7 +41,7 @@ pub struct RecursiveMutex<T: ?Sized> {
 }
 
 impl LazyInit for RecursiveMutex<()> {
-  fn init() -> NonNull<CVoid> {
+  fn init() -> NonNull<c_void> {
     unsafe {
       let ptr = xSemaphoreCreateRecursiveMutex();
       assert!(!ptr.is_null());
@@ -50,7 +50,7 @@ impl LazyInit for RecursiveMutex<()> {
   }
 
   #[inline]
-  fn destroy(ptr: NonNull<CVoid>) {
+  fn destroy(ptr: NonNull<c_void>) {
     unsafe { vSemaphoreDelete(ptr.as_ptr()) }
   }
 }

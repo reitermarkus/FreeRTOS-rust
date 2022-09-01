@@ -3,7 +3,7 @@ use alloc::{
   vec::Vec,
 };
 
-use crate::base::*;
+use crate::error::*;
 use crate::mutex::*;
 use crate::queue::*;
 use crate::units::*;

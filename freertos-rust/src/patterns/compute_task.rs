@@ -2,7 +2,7 @@ use alloc::{
   sync::Arc,
 };
 
-use crate::base::*;
+use crate::error::*;
 use crate::mutex::*;
 use crate::queue::*;
 use crate::task::*;
