@@ -68,8 +68,10 @@ mod shim;
 #[cfg(feature = "alloc")]
 mod allocator;
 mod base;
-#[cfg(feature = "sync")]
-mod critical;
+
+#[cfg(feature = "critical_section")]
+mod critical_section;
+
 #[cfg(feature = "time")]
 mod delays;
 #[cfg(feature = "interrupt")]
