@@ -34,11 +34,8 @@ impl TaskBuilder<'_> {
   }
 
   /// Set the task priority.
-  pub const fn priority<P>(mut self, priority: P) -> Self
-  where
-    P: ~const Into<TaskPriority>
-  {
-    self.task_priority = priority.into();
+  pub const fn priority(mut self, priority: TaskPriority) -> Self {
+    self.task_priority = priority;
     self
   }
 

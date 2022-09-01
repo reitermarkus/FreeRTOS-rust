@@ -1,6 +1,5 @@
 use core::{
-  ffi::{CStr, c_ulong, c_ushort, c_void},
-  fmt,
+  ffi::{CStr, c_void},
   mem::MaybeUninit,
   ptr::{self, NonNull},
 };
@@ -8,7 +7,6 @@ use core::{
 #[cfg(feature = "alloc")]
 use alloc::{
   boxed::Box,
-  string::{String, ToString},
   vec::Vec,
 };
 
@@ -19,6 +17,8 @@ use crate::units::*;
 
 mod builder;
 pub use builder::TaskBuilder;
+mod current;
+pub use current::CurrentTask;
 mod name;
 use name::TaskName;
 mod notification;
@@ -31,6 +31,8 @@ mod stack_overflow_hook;
 pub use stack_overflow_hook::set_stack_overflow_hook;
 mod state;
 pub use state::TaskState;
+mod system_state;
+pub use system_state::{SystemState, TaskStatus};
 
 /// Handle for a FreeRTOS task
 #[derive(Debug, Clone)]
@@ -136,14 +138,13 @@ impl Task {
         }
     }
 
-    /// Get the name of the current task.
-    pub fn get_name(&self) -> &CStr {
-        unsafe {
-            let task_name = pcTaskGetName(self.handle.as_ptr());
-            assert!(!task_name.is_null());
-            CStr::from_ptr(task_name)
-        }
+  /// Get the name of the current task.
+  pub fn name(&self) -> &str {
+    unsafe {
+      let task_name = pcTaskGetName(self.handle.as_ptr());
+      CStr::from_ptr(task_name).to_str().unwrap()
     }
+  }
 
     /// Try to find the task of the current execution context.
     pub fn current() -> Result<Task, FreeRtosError> {
@@ -260,133 +261,47 @@ impl Task {
       Err(FreeRtosError::Timeout)
     }
 
-    /// Get the minimum amount of stack that was ever left on this task.
-    pub fn stack_high_water_mark(&self) -> u32 {
-      unsafe { uxTaskGetStackHighWaterMark(self.handle.as_ptr()) }
+  /// Get the minimum amount of stack that was ever left on this task.
+  pub fn stack_high_water_mark(&self) -> u32 {
+    unsafe { uxTaskGetStackHighWaterMark(self.handle.as_ptr()) }
+  }
+
+  /// Get the number of existing tasks.
+  pub fn count() -> usize {
+    unsafe { uxTaskGetNumberOfTasks() as usize }
+  }
+
+  /// Get the complete system state.
+  pub fn system_state(tasks_len: Option<usize>) -> SystemState {
+    let tasks_len = tasks_len.unwrap_or(Task::count());
+    let mut tasks = Vec::<TaskStatus_t>::with_capacity(tasks_len as usize);
+    let mut total_run_time = 0;
+
+    unsafe {
+        let filled = uxTaskGetSystemState(
+          MaybeUninit::slice_as_mut_ptr(tasks.spare_capacity_mut()),
+          tasks_len as UBaseType_t,
+          &mut total_run_time,
+        );
+        tasks.set_len(filled as usize);
     }
 
-    /// Get the number of existing tasks.
-    pub fn count() -> usize {
-      unsafe { uxTaskGetNumberOfTasks() as usize }
-    }
-}
-
-/// Helper methods to be performed on the task that is currently executing.
-pub struct CurrentTask;
-
-impl CurrentTask {
-    /// Delay the execution of the current task.
-    pub fn delay<D: DurationTicks>(delay: D) {
-        unsafe {
-          vTaskDelay(delay.to_ticks());
+    let tasks = tasks
+      .into_iter()
+      .map(|t| {
+        TaskStatus {
+          handle: unsafe { Task::from_raw_handle(t.xHandle) },
+          name: unsafe { TaskName::from_ptr(t.pcTaskName) },
+          number: t.xTaskNumber,
+          state: t.eCurrentState.into(),
+          current_priority: unsafe { TaskPriority::new_unchecked(t.uxCurrentPriority as u8) },
+          base_priority: unsafe { TaskPriority::new_unchecked(t.uxBasePriority as u8) },
+          run_time_counter: t.ulRunTimeCounter,
+          stack_high_water_mark: t.usStackHighWaterMark,
         }
-    }
-}
+      })
+      .collect();
 
-#[derive(Debug)]
-pub struct FreeRtosSystemState {
-    pub tasks: Vec<FreeRtosTaskStatus>,
-    pub total_run_time: u32,
-}
-
-impl fmt::Display for FreeRtosSystemState {
-    fn fmt(&self, fmt: &mut fmt::Formatter) -> Result<(), fmt::Error> {
-        fmt.write_str("FreeRTOS tasks\r\n")?;
-
-        write!(fmt, "{id: <6} | {name: <16} | {state: <9} | {priority: <8} | {stack: >10} | {cpu_abs: >10} | {cpu_rel: >4}\r\n",
-               id = "ID",
-               name = "Name",
-               state = "State",
-               priority = "Priority",
-               stack = "Stack left",
-               cpu_abs = "CPU",
-               cpu_rel = "%"
-        )?;
-
-        for task in &self.tasks {
-            write!(fmt, "{id: <6} | {name: <16} | {state: <9} | {priority: <8} | {stack: >10} | {cpu_abs: >10} | {cpu_rel: >4}\r\n",
-                   id = task.task_number,
-                   name = task.name,
-                   state = format!("{:?}", task.task_state),
-                   priority = task.current_priority,
-                   stack = task.stack_high_water_mark,
-                   cpu_abs = task.run_time_counter,
-                   cpu_rel = if self.total_run_time > 0 && task.run_time_counter <= self.total_run_time {
-                       let p = (((task.run_time_counter as u64) * 100) / self.total_run_time as u64) as u32;
-                       let ps = if p == 0 && task.run_time_counter > 0 {
-                           "<1".to_string()
-                       } else {
-                           p.to_string()
-                       };
-                       format!("{: >3}%", ps)
-                   } else {
-                       "-".to_string()
-                   }
-            )?;
-        }
-
-        if self.total_run_time > 0 {
-            write!(fmt, "Total run time: {}\r\n", self.total_run_time)?;
-        }
-
-        Ok(())
-    }
-}
-
-#[derive(Debug)]
-pub struct FreeRtosTaskStatus {
-    pub task: Task,
-    pub name: String,
-    pub task_number: UBaseType_t,
-    pub task_state: TaskState,
-    pub current_priority: TaskPriority,
-    pub base_priority: TaskPriority,
-    pub run_time_counter: c_ulong,
-    pub stack_high_water_mark: c_ushort,
-}
-
-pub struct FreeRtosUtils;
-
-impl FreeRtosUtils {
-
-    pub fn get_all_tasks(tasks_len: Option<usize>) -> FreeRtosSystemState {
-        let tasks_len = tasks_len.unwrap_or(Task::count());
-        let mut tasks = Vec::with_capacity(tasks_len as usize);
-        let mut total_run_time = 0;
-
-        unsafe {
-            let filled = uxTaskGetSystemState(
-                MaybeUninit::slice_as_mut_ptr(tasks.spare_capacity_mut()),
-                tasks_len as UBaseType_t,
-                &mut total_run_time,
-            );
-            tasks.set_len(filled as usize);
-        }
-
-        let tasks = tasks
-            .into_iter()
-            .map(|t| {
-              let name = unsafe { CStr::from_ptr(t.pcTaskName) };
-              let name = name.to_str().unwrap_or("?");
-
-              FreeRtosTaskStatus {
-                  task: Task {
-                      handle: unsafe { NonNull::new_unchecked(t.xHandle) },
-                  },
-                  name: String::from(name),
-                  task_number: t.xTaskNumber,
-                  task_state: t.eCurrentState.into(),
-                  current_priority: unsafe { TaskPriority::new_unchecked(t.uxCurrentPriority as u8) },
-                  base_priority: unsafe { TaskPriority::new_unchecked(t.uxBasePriority as u8) },
-                  run_time_counter: t.ulRunTimeCounter,
-                  stack_high_water_mark: t.usStackHighWaterMark,
-              }
-            })
-            .collect();
-
-        FreeRtosSystemState {
-            tasks: tasks,
-            total_run_time: total_run_time,
-        }
-    }
+    SystemState { tasks, total_run_time }
+  }
 }

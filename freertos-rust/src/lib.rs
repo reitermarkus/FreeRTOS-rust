@@ -74,7 +74,7 @@ mod allocator;
 pub mod critical_section;
 
 #[cfg(feature = "time")]
-mod delays;
+mod delay;
 #[cfg(feature = "interrupt")]
 mod isr;
 #[cfg(feature = "sync")]
@@ -104,7 +104,7 @@ pub use crate::error::*;
 pub use crate::allocator::*;
 pub use crate::error::FreeRtosError;
 #[cfg(feature = "time")]
-pub use crate::delays::*;
+pub use crate::delay::*;
 pub use crate::assert::*;
 #[cfg(feature = "interrupt")]
 pub use crate::isr::*;
