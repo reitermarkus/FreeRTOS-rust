@@ -140,14 +140,24 @@ impl Task {
       self.handle.as_ptr()
     }
 
+    /// Suspend execution of the task.
     pub fn suspend(&self) {
         unsafe { vTaskSuspend(self.handle.as_ptr()) }
     }
 
+    /// Resume execution of the task.
+    pub fn resume(&self) {
+        unsafe { vTaskResume(self.handle.as_ptr()) }
+    }
+
+    /// Suspend the scheduler without disabling interrupts.
     pub fn suspend_all() {
       unsafe { vTaskSuspendAll() }
     }
 
+    /// Resume the scheduler.
+    ///
+    /// Returns `true` if resuming the scheduler caused a context switch.
     pub fn resume_all() -> bool {
         unsafe { xTaskResumeAll() == pdTRUE }
     }
