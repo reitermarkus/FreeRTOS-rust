@@ -25,7 +25,7 @@
 //! Task::new().name("hello").stack_size(128).start(|| {
 //! 	loop {
 //! 		println!("Hello world!");
-//! 		CurrentTask::delay(Duration::infinite());
+//! 		CurrentTask::delay(Duration::MAX);
 //! 	}
 //! }).unwrap();
 //!
@@ -37,8 +37,8 @@
 //! ```rust
 //! # use freertos_rs::*;
 //! let q = Queue::new(10).unwrap();
-//! q.send(10, Duration::ms(5)).unwrap();
-//! q.receive(Duration::infinite()).unwrap();
+//! q.send(10, Duration::from_millis(5)).unwrap();
+//! q.receive(Duration::MAX).unwrap();
 //! ```
 //!
 //! Mutex
@@ -47,7 +47,7 @@
 //! # use freertos_rs::*;
 //! let m = Mutex::new(0).unwrap();
 //! {
-//! 	let mut v = m.lock(Duration::infinite()).unwrap();
+//! 	let mut v = m.lock(Duration::MAX).unwrap();
 //! 	*v += 1;
 //! }
 //! ```
@@ -90,7 +90,7 @@ mod task;
 #[cfg(feature = "time")]
 mod timers;
 #[cfg(any(feature = "time", feature = "sync"))]
-mod units;
+mod ticks;
 mod utils;
 
 #[cfg(feature = "sync")]
@@ -119,6 +119,6 @@ pub use crate::task::*;
 #[cfg(feature = "time")]
 pub use crate::timers::*;
 #[cfg(any(feature = "time", feature = "sync"))]
-pub use crate::units::*;
+pub use crate::ticks::*;
 
 pub use crate::utils::cpu_clock_hz;

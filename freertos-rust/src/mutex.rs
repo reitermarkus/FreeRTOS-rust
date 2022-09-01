@@ -4,11 +4,12 @@ use core::fmt;
 use core::marker::PhantomData;
 use core::ops::{Deref, DerefMut};
 use core::ptr::NonNull;
+use core::time::Duration;
 
 use crate::error::FreeRtosError;
 use crate::lazy_init::{LazyInit, LazyPtr};
 use crate::shim::*;
-use crate::units::*;
+use crate::ticks::*;
 
 /// A mutual exclusion primitive useful for protecting shared data.
 pub struct Mutex<T: ?Sized> {
@@ -77,11 +78,11 @@ macro_rules! impl_mutex {
 
     impl<T: ?Sized> $name<T> {
       pub fn lock(&self) -> Result<$guard<'_, T>, FreeRtosError> {
-        self.timed_lock(Duration::infinite())
+        self.timed_lock(Duration::MAX)
       }
 
       pub fn try_lock(&self) -> Result<$guard<'_, T>, FreeRtosError> {
-        self.timed_lock(Duration::zero())
+        self.timed_lock(Duration::ZERO)
       }
     }
 
@@ -106,9 +107,11 @@ impl_mutex!(Mutex, MutexGuard);
 impl_mutex!(RecursiveMutex, RecursiveMutexGuard);
 
 impl<T: ?Sized> Mutex<T> {
-  pub fn timed_lock<D: DurationTicks>(&self, max_wait: D) -> Result<MutexGuard<'_, T>, FreeRtosError> {
+  pub fn timed_lock(&self, timeout: impl Into<Ticks>) -> Result<MutexGuard<'_, T>, FreeRtosError> {
+    let timeout = timeout.into();
+
     let res = unsafe {
-      xSemaphoreTake(self.handle.as_ptr(), max_wait.to_ticks())
+      xSemaphoreTake(self.handle.as_ptr(), timeout.as_ticks())
     };
 
     if res == pdTRUE {
@@ -120,9 +123,11 @@ impl<T: ?Sized> Mutex<T> {
 }
 
 impl<T: ?Sized> RecursiveMutex<T> {
-  pub fn timed_lock<D: DurationTicks>(&self, max_wait: D) -> Result<RecursiveMutexGuard<'_, T>, FreeRtosError> {
+  pub fn timed_lock(&self, timeout: impl Into<Ticks>) -> Result<RecursiveMutexGuard<'_, T>, FreeRtosError> {
+    let timeout = timeout.into();
+
     let res = unsafe {
-      xSemaphoreTakeRecursive(self.handle.as_ptr(), max_wait.to_ticks())
+      xSemaphoreTakeRecursive(self.handle.as_ptr(), timeout.as_ticks())
     };
 
     if res == pdTRUE {

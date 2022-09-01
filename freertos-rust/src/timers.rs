@@ -11,7 +11,7 @@ use alloc::{
 use crate::error::FreeRtosError;
 use crate::InterruptContext;
 use crate::shim::*;
-use crate::units::*;
+use crate::ticks::*;
 use crate::Task;
 
 unsafe impl Send for Timer {}
@@ -28,13 +28,13 @@ pub struct Timer {
 }
 
 /// Helper builder for a new software timer.
-pub struct TimerBuilder<D: DurationTicks> {
+pub struct TimerBuilder {
     name: String,
-    period: D,
+    period: Ticks,
     auto_reload: bool,
 }
 
-impl<D: DurationTicks> TimerBuilder<D> {
+impl TimerBuilder {
     /// Set the name of the timer.
     pub fn set_name(&mut self, name: &str) -> &mut Self {
         self.name = name.into();
@@ -42,8 +42,8 @@ impl<D: DurationTicks> TimerBuilder<D> {
     }
 
     /// Set the period of the timer.
-    pub fn set_period(&mut self, period: D) -> &mut Self {
-        self.period = period;
+    pub fn set_period(&mut self, period: impl Into<Ticks>) -> &mut Self {
+        self.period = period.into();
         self
     }
 
@@ -63,7 +63,7 @@ impl<D: DurationTicks> TimerBuilder<D> {
     {
         Timer::spawn(
             self.name.as_str(),
-            self.period.to_ticks(),
+            self.period,
             self.auto_reload,
             callback,
         )
@@ -75,10 +75,10 @@ impl Timer {
     pub const STACK_SIZE: u16 = configTIMER_TASK_STACK_DEPTH;
 
     /// Create a new timer builder.
-    pub fn new<D: DurationTicks>(period: D) -> TimerBuilder<D> {
+    pub fn new(period: impl Into<Ticks>) -> TimerBuilder {
         TimerBuilder {
             name: "timer".into(),
-            period: period,
+            period: period.into(),
             auto_reload: true,
         }
     }
@@ -149,7 +149,7 @@ impl Timer {
 
     fn spawn<F>(
         name: &str,
-        period_tick: TickType_t,
+        period_tick: Ticks,
         auto_reload: bool,
         callback: F,
     ) -> Result<Timer, FreeRtosError>
@@ -157,13 +157,13 @@ impl Timer {
         F: Fn(Timer) -> (),
         F: Send + 'static,
     {
-        unsafe { Timer::spawn_inner(name, period_tick, auto_reload, Box::new(callback)) }
+        unsafe { Timer::spawn_inner(name, period_tick.as_ticks(), auto_reload, Box::new(callback)) }
     }
 
     /// Start the timer.
-    pub fn start<D: DurationTicks>(&self, block_time: D) -> Result<(), FreeRtosError> {
+    pub fn start(&self, timeout: impl Into<Ticks>) -> Result<(), FreeRtosError> {
         let res = unsafe {
-          xTimerStart(self.handle.as_ptr(), block_time.to_ticks())
+          xTimerStart(self.handle.as_ptr(), timeout.into().as_ticks())
         };
 
         match res {
@@ -185,9 +185,9 @@ impl Timer {
     }
 
     /// Stop the timer.
-    pub fn stop<D: DurationTicks>(&self, block_time: D) -> Result<(), FreeRtosError> {
+    pub fn stop(&self, timeout: impl Into<Ticks>) -> Result<(), FreeRtosError> {
         let res = unsafe {
-          xTimerStop(self.handle.as_ptr(), block_time.to_ticks())
+          xTimerStop(self.handle.as_ptr(), timeout.into().as_ticks())
         };
 
         match res {
@@ -201,16 +201,16 @@ impl Timer {
     }
 
     /// Change the period of the timer.
-    pub fn change_period<D: DurationTicks>(
+    pub fn change_period(
         &self,
-        block_time: D,
-        new_period: D,
+        new_period: impl Into<Ticks>,
+        timeout: impl Into<Ticks>,
     ) -> Result<(), FreeRtosError> {
         unsafe {
             if xTimerChangePeriod(
                 self.handle.as_ptr(),
-                block_time.to_ticks(),
-                new_period.to_ticks(),
+                new_period.into().as_ticks(),
+                timeout.into().as_ticks(),
             ) == pdTRUE {
                 return Ok(())
             }
@@ -241,7 +241,7 @@ impl Drop for Timer {
             let callback_ptr = pvTimerGetTimerID(self.handle.as_ptr());
             let callback = Box::from_raw(callback_ptr as *mut Box<dyn Fn(Timer)>);
 
-            xTimerDelete(self.handle.as_ptr(), Duration::infinite().to_ticks());
+            xTimerDelete(self.handle.as_ptr(), portMAX_DELAY);
 
             drop(task_name);
             drop(callback);

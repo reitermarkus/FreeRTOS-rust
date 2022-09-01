@@ -1,13 +1,17 @@
-use crate::shim::{
-  BaseType_t,
-  taskSCHEDULER_SUSPENDED,
-  taskSCHEDULER_NOT_STARTED,
-  taskSCHEDULER_RUNNING,
-  vTaskStartScheduler,
-  xTaskGetSchedulerState,
-  vTaskSuspendAll,
-  xTaskResumeAll,
-  pdTRUE, xTaskGetTickCount, TickType_t,
+use crate::{
+  shim::{
+    BaseType_t,
+    taskSCHEDULER_SUSPENDED,
+    taskSCHEDULER_NOT_STARTED,
+    taskSCHEDULER_RUNNING,
+    vTaskStartScheduler,
+    xTaskGetSchedulerState,
+    vTaskSuspendAll,
+    xTaskResumeAll,
+    pdTRUE,
+    xTaskGetTickCount,
+  },
+  Ticks,
 };
 
 /// State of the FreeRTOS task scheduler.
@@ -68,7 +72,7 @@ impl Scheduler {
 
   /// Number of ticks since the scheduler was started.
   #[inline(always)]
-  pub fn tick_count() -> TickType_t {
-    unsafe { xTaskGetTickCount() }
+  pub fn tick_count() -> Ticks {
+    unsafe { xTaskGetTickCount() }.into()
   }
 }

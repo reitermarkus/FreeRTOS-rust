@@ -1,0 +1,54 @@
+use core::time::Duration;
+
+use crate::shim::{TickType_t, portMAX_DELAY, portTICK_PERIOD_MS};
+
+/// Duration in FreeRTOS ticks.
+///
+/// This type represents a duration in ticks. The duration of a single tick
+/// depends on `portTICK_PERIOD_MS`.
+///
+/// All blocking API functions support any type which can be converted to
+/// `Ticks`. In particular, you can pass a [`Duration`] seamlessly with the
+/// following behaviour:
+///
+/// - `Duration::ZERO` makes an API call non-blocking and it will return immediately.
+/// - `Duration::MAX` blocks an API call until it completes. This is true for any
+///   `Duration` which exceeds `portMAX_DELAY` ticks.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[repr(transparent)]
+pub struct Ticks {
+  ticks: TickType_t,
+}
+
+impl Ticks {
+  pub const fn new(ticks: TickType_t) -> Self {
+    Self { ticks }
+  }
+
+  pub(crate) const fn as_ticks(&self) -> TickType_t {
+    self.ticks
+  }
+}
+
+impl From<TickType_t> for Ticks {
+  fn from(ticks: TickType_t) -> Self {
+    Self { ticks }
+  }
+}
+
+impl From<Duration> for Ticks {
+  fn from(duration: Duration) -> Self {
+    let ticks = duration.as_millis() / portTICK_PERIOD_MS as u128;
+    Self::new(ticks.try_into().unwrap_or(portMAX_DELAY))
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  #[test]
+  fn duration_max_gte_port_max_delay() {
+    assert!(Ticks::from(Duration::MAX) >= Ticks::MAX)
+  }
+}

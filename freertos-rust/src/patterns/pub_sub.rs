@@ -6,7 +6,7 @@ use alloc::{
 use crate::error::*;
 use crate::mutex::*;
 use crate::queue::*;
-use crate::units::*;
+use crate::ticks::*;
 
 /// A pub-sub queue. An item sent to the publisher is sent to every subscriber.
 pub struct QueuePublisher<T: Sized + Copy> {
@@ -33,27 +33,27 @@ impl<T: Sized + Send + Copy> QueuePublisher<T> {
 
     /// Send an item to every subscriber. Returns the number of
     /// subscribers that have received the item.
-    pub fn send<D: DurationTicks>(&self, item: T, max_wait: D) -> usize {
-        let mut sent_to = 0;
+    pub fn send(&self, item: T, timeout: impl Into<Ticks>) -> usize {
+      let timeout = timeout.into();
 
-        if let Ok(m) = self.inner.timed_lock(max_wait) {
-            for subscriber in &m.subscribers {
-                if let Ok(_) = subscriber.queue.send(item, max_wait) {
-                    sent_to += 1;
-                }
-            }
+      let mut sent_to = 0;
+      if let Ok(m) = self.inner.timed_lock(timeout) {
+        for subscriber in &m.subscribers {
+          if let Ok(_) = subscriber.queue.send(item, timeout) {
+            sent_to += 1;
+          }
         }
-
-        sent_to
+      }
+      sent_to
     }
 
     /// Subscribe to this publisher. Can accept a fixed amount of items.
-    pub fn subscribe<D: DurationTicks>(
-        &self,
-        max_size: usize,
-        create_max_wait: D,
+    pub fn subscribe(
+      &self,
+      max_size: usize,
+      timeout: impl Into<Ticks>,
     ) -> Result<QueueSubscriber<T>, FreeRtosError> {
-        let mut inner = self.inner.timed_lock(create_max_wait)?;
+        let mut inner = self.inner.timed_lock(timeout)?;
 
         let queue = Queue::new(max_size)?;
 
@@ -91,8 +91,8 @@ impl<T: Sized + Copy> Drop for QueueSubscriber<T> {
 
 impl<T: Sized + Send + Copy> QueueSubscriber<T> {
     /// Wait for an item to be posted from the publisher.
-    pub fn receive<D: DurationTicks>(&self, max_wait: D) -> Result<T, FreeRtosError> {
-        self.inner.queue.receive(max_wait)
+    pub fn receive(&self, timeout: impl Into<Ticks>) -> Result<T, FreeRtosError> {
+        self.inner.queue.receive(timeout)
     }
 }
 

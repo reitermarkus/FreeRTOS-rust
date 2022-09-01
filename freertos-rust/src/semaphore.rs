@@ -6,7 +6,7 @@ use core::ptr::NonNull;
 use crate::lazy_init::{LazyPtr, LazyInit};
 use crate::{error::*, InterruptContext};
 use crate::shim::*;
-use crate::units::*;
+use crate::ticks::*;
 
 pub type StaticSemaphore = StaticSemaphore_t;
 
@@ -153,9 +153,9 @@ impl<T: SemaphoreImpl> Semaphore<T> {
   }
 
   #[inline]
-  pub fn take<D: DurationTicks>(&self, max_wait: D) -> Result<(), FreeRtosError> {
+  pub fn take(&self, timeout: impl Into<Ticks>) -> Result<(), FreeRtosError> {
     let res = unsafe {
-      xSemaphoreTake(self.handle.as_ptr(), max_wait.to_ticks())
+      xSemaphoreTake(self.handle.as_ptr(), timeout.into().as_ticks())
     };
 
     if res == pdTRUE {
@@ -178,8 +178,8 @@ impl<T: SemaphoreImpl> Semaphore<T> {
   }
 
   /// Lock this semaphore in RAII fashion.
-  pub fn lock<D: DurationTicks>(&self, max_wait: D) -> Result<SemaphoreGuard<'_>, FreeRtosError> {
-      self.take(max_wait)?;
+  pub fn lock(&self, timeout: impl Into<Ticks>) -> Result<SemaphoreGuard<'_>, FreeRtosError> {
+      self.take(timeout)?;
 
       Ok(SemaphoreGuard { handle: self.handle.as_ptr(), _lifetime: PhantomData })
   }

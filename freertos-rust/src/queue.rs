@@ -6,7 +6,7 @@ use core::ptr::{self, NonNull};
 use crate::error::*;
 use crate::isr::*;
 use crate::shim::*;
-use crate::units::*;
+use crate::ticks::*;
 
 pub type StaticQueue = StaticQueue_t;
 
@@ -30,9 +30,9 @@ macro_rules! impl_send {
     () => {
         /// Send an item to the end of the queue. Wait for the queue to have empty space for it.
         #[inline]
-        pub fn send<D: DurationTicks>(&self, item: T, max_wait: D) -> Result<(), FreeRtosError> {
+        pub fn send(&self, item: T, timeout: impl Into<Ticks>) -> Result<(), FreeRtosError> {
           let res = unsafe {
-            xQueueSend(self.handle.as_ptr(), ptr::addr_of!(item).cast(), max_wait.to_ticks())
+            xQueueSend(self.handle.as_ptr(), ptr::addr_of!(item).cast(), timeout.into().as_ticks())
           };
 
           if res == pdTRUE {
@@ -70,11 +70,11 @@ macro_rules! impl_receive {
     () => {
         /// Wait for an item to be available on the queue.
         #[inline]
-        pub fn receive<D: DurationTicks>(&self, max_wait: D) -> Result<T, FreeRtosError> {
+        pub fn receive(&self, timeout: impl Into<Ticks>) -> Result<T, FreeRtosError> {
           let mut item = MaybeUninit::<T>::zeroed();
 
           let res = unsafe {
-            xQueueReceive(self.handle.as_ptr(), item.as_mut_ptr().cast(), max_wait.to_ticks())
+            xQueueReceive(self.handle.as_ptr(), item.as_mut_ptr().cast(), timeout.into().as_ticks())
           };
 
           match res {

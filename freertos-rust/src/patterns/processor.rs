@@ -1,3 +1,5 @@
+use core::time::Duration;
+
 use alloc::{
   sync::{Arc, Weak},
   vec::Vec,
@@ -6,7 +8,7 @@ use alloc::{
 use crate::error::*;
 use crate::mutex::*;
 use crate::queue::*;
-use crate::units::*;
+use crate::ticks::*;
 
 pub type SharedClientWithReplyQueue<O> = Arc<ClientWithReplyQueue<O>>;
 pub type Client<I> = ProcessorClient<I, ()>;
@@ -93,17 +95,17 @@ where
         Ok(c)
     }
 
-    pub fn new_client_with_reply<D: DurationTicks>(
+    pub fn new_client_with_reply(
         &self,
         client_receive_queue_size: usize,
-        max_wait: D,
+        timeout: impl Into<Ticks>,
     ) -> Result<ProcessorClient<I, SharedClientWithReplyQueue<O>>, FreeRtosError> {
         if client_receive_queue_size == 0 {
             return Err(FreeRtosError::InvalidQueueSize);
         }
 
         let client_reply = {
-            let mut processor = self.inner.timed_lock(max_wait)?;
+            let mut processor = self.inner.timed_lock(timeout)?;
 
             let c = ClientWithReplyQueue {
                 id: processor.next_client_id,
@@ -131,21 +133,23 @@ where
         &*self.queue
     }
 
-    pub fn reply<D: DurationTicks>(
+    pub fn reply(
         &self,
         received_message: I,
         reply: O,
-        max_wait: D,
+        timeout: impl Into<Ticks>,
     ) -> Result<bool, FreeRtosError> {
         if let Some(client_id) = received_message.reply_to_client_id() {
-            let inner = self.inner.timed_lock(max_wait)?;
+          let timeout = timeout.into();
+
+            let inner = self.inner.timed_lock(timeout)?;
             if let Some(client) = inner
                 .clients
                 .iter()
                 .flat_map(|ref x| x.1.upgrade().into_iter())
                 .find(|x| x.id == client_id)
             {
-                client.receive_queue.send(reply, max_wait)?;
+                client.receive_queue.send(reply, timeout)?;
                 return Ok(true);
             }
         }
@@ -159,13 +163,13 @@ where
     I: Send + Copy,
     O: Send + Copy,
 {
-    pub fn reply_val<D: DurationTicks>(
+    pub fn reply_val(
         &self,
         received_message: InputMessage<I>,
         reply: O,
-        max_wait: D,
+        timeout: impl Into<Ticks>,
     ) -> Result<bool, FreeRtosError> {
-        self.reply(received_message, reply, max_wait)
+        self.reply(received_message, reply, timeout)
     }
 }
 
@@ -198,12 +202,12 @@ impl<I, O> ProcessorClient<I, O>
 where
     I: ReplyableMessage + Send + Copy,
 {
-    pub fn send<D: DurationTicks>(&self, message: I, max_wait: D) -> Result<(), FreeRtosError> {
+    pub fn send(&self, message: I, timeout: impl Into<Ticks>) -> Result<(), FreeRtosError> {
         let processor_queue = self
             .processor_queue
             .upgrade()
             .ok_or(FreeRtosError::ProcessorHasShutDown)?;
-        processor_queue.send(message, max_wait)?;
+        processor_queue.send(message, timeout)?;
         Ok(())
     }
 
@@ -224,8 +228,8 @@ impl<I> ProcessorClient<InputMessage<I>, ()>
 where
     I: Send + Copy,
 {
-    pub fn send_val<D: DurationTicks>(&self, val: I, max_wait: D) -> Result<(), FreeRtosError> {
-        self.send(InputMessage::request(val), max_wait)
+    pub fn send_val(&self, val: I, timeout: impl Into<Ticks>) -> Result<(), FreeRtosError> {
+        self.send(InputMessage::request(val), timeout)
     }
 
     pub fn send_val_from_isr(
@@ -242,9 +246,11 @@ where
     I: ReplyableMessage + Send + Copy,
     O: Send + Copy,
 {
-    pub fn call<D: DurationTicks>(&self, message: I, max_wait: D) -> Result<O, FreeRtosError> {
-        self.send(message, max_wait)?;
-        self.client_reply.receive_queue.receive(max_wait)
+    pub fn call(&self, message: I, timeout: impl Into<Ticks>) -> Result<O, FreeRtosError> {
+      let timeout = timeout.into();
+
+        self.send(message, timeout)?;
+        self.client_reply.receive_queue.receive(timeout)
     }
 
     pub fn get_receive_queue(&self) -> &Queue<O> {
@@ -257,14 +263,14 @@ where
     I: Send + Copy,
     O: Send + Copy,
 {
-    pub fn send_val<D: DurationTicks>(&self, val: I, max_wait: D) -> Result<(), FreeRtosError> {
-        self.send(InputMessage::request(val), max_wait)
+    pub fn send_val(&self, val: I, timeout: impl Into<Ticks>) -> Result<(), FreeRtosError> {
+        self.send(InputMessage::request(val), timeout)
     }
 
-    pub fn call_val<D: DurationTicks>(&self, val: I, max_wait: D) -> Result<O, FreeRtosError> {
+    pub fn call_val(&self, val: I, timeout: impl Into<Ticks>) -> Result<O, FreeRtosError> {
         let reply = self.call(
             InputMessage::request_with_reply(val, self.client_reply.id),
-            max_wait,
+            timeout,
         )?;
         Ok(reply)
     }
@@ -297,7 +303,7 @@ where
     O: Copy,
 {
     fn drop(&mut self) {
-        if let Ok(mut p) = self.processor_inner.timed_lock(Duration::ms(1000)) {
+        if let Ok(mut p) = self.processor_inner.timed_lock(Duration::from_millis(1000)) {
             p.remove_client_reply(&self);
         }
     }

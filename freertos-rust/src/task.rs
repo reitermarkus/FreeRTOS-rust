@@ -13,7 +13,7 @@ use alloc::{
 use crate::error::*;
 use crate::isr::*;
 use crate::shim::*;
-use crate::units::*;
+use crate::ticks::*;
 
 mod builder;
 pub use builder::TaskBuilder;
@@ -162,9 +162,9 @@ impl Task {
     }
 
     /// Take the notification and either clear the notification value or decrement it by one.
-    pub fn take_notification<D: DurationTicks>(clear: bool, wait_for: D) -> u32 {
+    pub fn take_notification(clear: bool, timeout: impl Into<Ticks>) -> u32 {
       unsafe {
-        ulTaskNotifyTake(if clear { pdTRUE } else { pdFALSE }, wait_for.to_ticks())
+        ulTaskNotifyTake(if clear { pdTRUE } else { pdFALSE }, timeout.into().as_ticks())
       }
     }
 
@@ -239,11 +239,11 @@ impl Task {
     }
 
     /// Wait for a notification to be posted.
-    pub fn wait_for_notification<D: DurationTicks>(
+    pub fn timeout_notification(
         &self,
         clear_bits_enter: u32,
         clear_bits_exit: u32,
-        wait_for: D,
+        timeout: impl Into<Ticks>,
     ) -> Result<u32, FreeRtosError> {
         let mut val = 0;
         let r = unsafe {
@@ -251,7 +251,7 @@ impl Task {
                 clear_bits_enter,
                 clear_bits_exit,
                 &mut val as *mut _,
-                wait_for.to_ticks(),
+                timeout.into().as_ticks(),
             )
         };
 

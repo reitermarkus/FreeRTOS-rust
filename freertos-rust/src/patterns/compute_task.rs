@@ -6,13 +6,12 @@ use crate::error::*;
 use crate::mutex::*;
 use crate::queue::*;
 use crate::task::*;
-use crate::units::*;
+use crate::ticks::*;
 
 pub trait ComputeTaskBuilder {
     fn compute<F, R>(&self, func: F) -> Result<ComputeTask<R>, FreeRtosError>
     where
-        F: FnOnce() -> R,
-        F: Send + 'static,
+        F: FnOnce() -> R + Send + 'static,
         R: Sync + Send + 'static;
 }
 
@@ -21,10 +20,11 @@ impl ComputeTaskBuilder for TaskBuilder<'_> {
     /// Spawn a task that can post a return value to the outside.
     fn compute<F, R>(&self, func: F) -> Result<ComputeTask<R>, FreeRtosError>
     where
-        F: FnOnce() -> R,
-        F: Send + 'static,
+        F: FnOnce() -> R + Send + 'static,
         R: Sync + Send + 'static,
     {
+        use core::time::Duration;
+
         let (task, result, status) = {
             let result = Arc::new(Mutex::new(None));
             let status = Arc::new(Queue::new(1)?);
@@ -33,14 +33,14 @@ impl ComputeTaskBuilder for TaskBuilder<'_> {
             let task_status = status.clone();
             let task = self.start(move |_this_task| {
                 {
-                    let mut lock = task_result.timed_lock(Duration::infinite()).unwrap();
+                    let mut lock = task_result.timed_lock(Duration::MAX).unwrap();
                     let r = func();
                     *lock = Some(r);
                 }
                 // release our reference to the mutex, so it can be deconstructed
                 drop(task_result);
                 task_status
-                    .send(ComputeTaskStatus::Finished, Duration::infinite())
+                    .send(ComputeTaskStatus::Finished, Duration::MAX)
                     .unwrap();
             })?;
 
@@ -82,11 +82,11 @@ impl ComputeTaskBuilder for TaskBuilder<'_> {
 /// # use freertos_rs::*;
 /// use freertos_rs::patterns::compute_task::*;
 /// let task = Task::new().compute(|| {
-/// 	CurrentTask::delay(Duration::ms(100));
+/// 	CurrentTask::delay(Duration::from_millis(100));
 /// 	42
 /// }).unwrap();
 ///
-/// let result = task.into_result(Duration::ms(1000)).unwrap();
+/// let result = task.into_result(Duration::from_millis(1000)).unwrap();
 /// # println!("{}", result);
 /// ```
 
@@ -112,11 +112,11 @@ impl<R: Debug> ComputeTask<R> {
     }
 
     /// Wait until the task computes its result. Otherwise, returns a timeout.
-    pub fn wait_for_result<D: DurationTicks>(&mut self, max_wait: D) -> Result<(), FreeRtosError> {
+    pub fn wait_for_result(&mut self, timeout: impl Into<Ticks>) -> Result<(), FreeRtosError> {
         if self.finished == true {
             Ok(())
         } else {
-            match self.status.receive(max_wait) {
+            match self.status.receive(timeout) {
                 Ok(ComputeTaskStatus::Finished) => {
                     self.finished = true;
                     Ok(())
@@ -127,8 +127,8 @@ impl<R: Debug> ComputeTask<R> {
     }
 
     /// Consume the task and unwrap the computed return value.
-    pub fn into_result<D: DurationTicks>(mut self, max_wait: D) -> Result<R, FreeRtosError> {
-        self.wait_for_result(max_wait)?;
+    pub fn into_result(mut self, timeout: impl Into<Ticks>) -> Result<R, FreeRtosError> {
+        self.wait_for_result(timeout)?;
 
         if self.finished != true {
             panic!("ComputeTask should be finished!");
