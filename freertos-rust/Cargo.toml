@@ -19,11 +19,10 @@ name = "freertos_rust"
 path = "src/lib.rs"
 
 [features]
-default = ["alloc", "sync", "time", "hooks", "interrupt"]
+default = ["alloc", "sync", "time", "interrupt"]
 alloc = []
 sync = ["interrupt"]
 time = ["interrupt"]
-hooks = []
 interrupt = []
 
 heap_1 = ["alloc"]

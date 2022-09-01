@@ -277,7 +277,7 @@ impl Task {
     pub fn notify_from_isr(
         &self,
         notification: TaskNotification,
-        context: &mut InterruptContext,
+        ic: &mut InterruptContext,
     ) -> Result<(), FreeRtosError> {
         unsafe {
             let n = notification.to_freertos();
@@ -285,7 +285,7 @@ impl Task {
                 self.handle.as_ptr(),
                 n.0,
                 n.1,
-                context.x_higher_priority_task_woken(),
+                ic.as_ptr(),
             );
             if t == pdPASS {
                 return Ok(())
@@ -300,7 +300,7 @@ impl Task {
       &self,
       index: u32,
       notification: TaskNotification,
-      context: &mut InterruptContext,
+      ic: &mut InterruptContext,
     ) -> Result<(), FreeRtosError> {
         unsafe {
             let n = notification.to_freertos();
@@ -309,7 +309,7 @@ impl Task {
                 index,
                 n.0,
                 n.1,
-                context.x_higher_priority_task_woken(),
+                ic.as_ptr(),
             );
             if t == pdPASS {
               return Ok(())

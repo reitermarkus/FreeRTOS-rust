@@ -171,9 +171,9 @@ impl Timer {
     }
 
     /// Start the timer from an interrupt.
-    pub fn start_from_isr(&self, context: &mut InterruptContext) -> Result<(), FreeRtosError> {
+    pub fn start_from_isr(&self, ic: &mut InterruptContext) -> Result<(), FreeRtosError> {
         let res = unsafe {
-          xTimerStartFromISR(self.handle.as_ptr(), context.x_higher_priority_task_woken())
+          xTimerStartFromISR(self.handle.as_ptr(), ic.as_ptr())
         };
 
         match res {

@@ -54,7 +54,7 @@ macro_rules! impl_send {
             item: T,
         ) -> Result<(), FreeRtosError> {
           let res = unsafe {
-            xQueueSendFromISR(self.handle.as_ptr(), ptr::addr_of!(item).cast(), ic.x_higher_priority_task_woken())
+            xQueueSendFromISR(self.handle.as_ptr(), ptr::addr_of!(item).cast(), ic.as_ptr())
           };
 
           match res {

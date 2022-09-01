@@ -141,7 +141,7 @@ impl<T: SemaphoreImpl> Semaphore<T> {
   #[inline]
   pub fn give_from_isr(&self, ic: &mut InterruptContext) -> Result<(), FreeRtosError> {
     let res = unsafe {
-      xSemaphoreGiveFromISR(self.handle.as_ptr(), ic.x_higher_priority_task_woken())
+      xSemaphoreGiveFromISR(self.handle.as_ptr(), ic.as_ptr())
     };
 
     if res == pdTRUE {
@@ -166,7 +166,7 @@ impl<T: SemaphoreImpl> Semaphore<T> {
 
   pub fn take_from_isr(&self, ic: &mut InterruptContext) -> Result<(), FreeRtosError> {
     let res = unsafe {
-      xSemaphoreTakeFromISR(self.handle.as_ptr(), ic.x_higher_priority_task_woken())
+      xSemaphoreTakeFromISR(self.handle.as_ptr(), ic.as_ptr())
     };
 
     if res == pdTRUE {

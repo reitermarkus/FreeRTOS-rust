@@ -61,16 +61,15 @@
 #[cfg_attr(any(feature = "time", feature = "sync"), macro_use)]
 extern crate alloc;
 
-#[cfg(feature = "hooks")]
 pub mod assert;
+mod base;
 mod shim;
 
 #[cfg(feature = "alloc")]
 mod allocator;
-mod base;
 
 #[cfg(feature = "critical_section")]
-mod critical_section;
+pub mod critical_section;
 
 #[cfg(feature = "time")]
 mod delays;
@@ -102,11 +101,8 @@ pub use crate::base::*;
 #[cfg(feature = "alloc")]
 pub use crate::allocator::*;
 pub use crate::base::FreeRtosError;
-#[cfg(feature = "sync")]
-pub use crate::critical::*;
 #[cfg(feature = "time")]
 pub use crate::delays::*;
-#[cfg(feature = "hooks")]
 pub use crate::assert::*;
 #[cfg(feature = "interrupt")]
 pub use crate::isr::*;
