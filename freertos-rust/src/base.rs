@@ -12,9 +12,6 @@ pub enum FreeRtosError {
 
 pub type CVoid = core::ffi::c_void;
 
-pub type FreeRtosUBaseType = u32;
-pub type FreeRtosTickType = u32;
-
 pub type FreeRtosTaskHandle = *mut CVoid;
 pub type FreeRtosQueueHandle = *mut CVoid;
 pub type FreeRtosSemaphoreHandle = *mut CVoid;

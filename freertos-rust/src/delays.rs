@@ -1,4 +1,3 @@
-use crate::base::*;
 use crate::shim::*;
 use crate::task::*;
 use crate::units::*;
@@ -6,7 +5,7 @@ use crate::units::*;
 /// Delay the current task by the given duration, minus the
 /// time that was spent processing the last wakeup loop.
 pub struct TaskDelay {
-    last_wake_time: FreeRtosTickType,
+    last_wake_time: TickType_t,
 }
 
 impl TaskDelay {
@@ -33,8 +32,8 @@ impl TaskDelay {
 /// The method `should_run` will return true once 30 seconds or more has elapsed
 /// and it will then reset the timer for that period.
 pub struct TaskDelayPeriodic {
-    last_wake_time: FreeRtosTickType,
-    period_ticks: FreeRtosTickType,
+    last_wake_time: TickType_t,
+    period_ticks: TickType_t,
 }
 
 impl TaskDelayPeriodic {

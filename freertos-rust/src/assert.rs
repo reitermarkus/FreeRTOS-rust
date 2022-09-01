@@ -30,7 +30,7 @@ fn assert_panic(message: &'static str, file_name: &'static str, line: usize) {
   panic!("assertion at {}:{} failed: {}", file_name, line, message);
 }
 
-#[export_name = "__rust__vAssertCalled"]
+#[export_name = "vAssertCalled"]
 extern "C" fn assert_called(
   message: *const c_char, message_len: c_size_t,
   file_name: *const c_char, file_name_len: c_size_t,

@@ -1,9 +1,8 @@
-use crate::base::FreeRtosTickType;
 use crate::shim::*;
 
 pub trait DurationTicks: Copy + Clone {
     /// Convert to ticks, the internal time measurement unit of FreeRTOS
-    fn to_ticks(&self) -> FreeRtosTickType;
+    fn to_ticks(&self) -> TickType_t;
 }
 
 /// Time unit used by FreeRTOS, passed to the scheduler as ticks.
@@ -43,7 +42,7 @@ impl Duration {
 }
 
 impl DurationTicks for Duration {
-    fn to_ticks(&self) -> FreeRtosTickType {
+    fn to_ticks(&self) -> TickType_t {
         self.ticks
     }
 }

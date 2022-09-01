@@ -55,7 +55,7 @@
 #![allow(non_upper_case_globals)]
 #![allow(non_camel_case_types)]
 #![allow(non_snake_case)]
-#![feature(maybe_uninit_slice, maybe_uninit_uninit_array, const_maybe_uninit_uninit_array)]
+#![feature(maybe_uninit_slice, maybe_uninit_uninit_array, const_maybe_uninit_uninit_array, maybe_uninit_write_slice)]
 #![feature(c_size_t)]
 
 #[cfg_attr(any(feature = "time", feature = "sync"), macro_use)]

@@ -6,13 +6,13 @@
 
 #include <stddef.h>
 
-extern void __rust__vAssertCalled(
+extern void vAssertCalled(
   const char* message, size_t message_len,
   const char* file_name, size_t file_name_len,
   size_t line
 );
 #define configASSERT(x) if (!(x)) { \
-  __rust__vAssertCalled(#x, sizeof(#x) - 1, __FILE__, sizeof(__FILE__) - 1, __LINE__); \
+  vAssertCalled(#x, sizeof(#x) - 1, __FILE__, sizeof(__FILE__) - 1, __LINE__); \
 }
 
 #include "FreeRTOS.h"

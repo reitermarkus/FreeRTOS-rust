@@ -25,3 +25,8 @@ unsafe impl GlobalAlloc for Allocator {
     vPortFree(ptr.cast())
   }
 }
+
+#[export_name = "vApplicationMallocFailedHook"]
+extern "C" fn malloc_failed_hook() {
+  panic!("`malloc` failed");
+}

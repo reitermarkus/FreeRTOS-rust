@@ -1,9 +1,12 @@
 use core::ffi::CStr;
+use core::ffi::c_char;
 use core::fmt;
 use core::mem;
 use core::mem::MaybeUninit;
 use core::ptr;
 use core::ptr::NonNull;
+use core::sync::atomic::AtomicPtr;
+use core::sync::atomic::Ordering;
 
 #[cfg(feature = "alloc")]
 use alloc::{
@@ -17,6 +20,9 @@ use crate::base::*;
 use crate::isr::*;
 use crate::shim::*;
 use crate::units::*;
+
+mod name;
+use name::TaskName;
 
 /// Handle for a FreeRTOS task
 #[derive(Debug, Clone)]
@@ -121,11 +127,11 @@ impl Task {
         }
     }
 
-    pub unsafe fn from_raw_handle(handle: FreeRtosTaskHandle) -> Self {
+    pub unsafe fn from_raw_handle(handle: TaskHandle_t) -> Self {
       Self { handle: NonNull::new_unchecked(handle) }
     }
 
-    pub fn as_raw_handle(&self) -> FreeRtosTaskHandle {
+    pub fn as_raw_handle(&self) -> TaskHandle_t {
       self.handle.as_ptr()
     }
 
@@ -147,10 +153,7 @@ impl Task {
         stack_size: u16,
         priority: TaskPriority,
     ) -> Result<Task, FreeRtosError> {
-        let name = name.as_bytes();
-        let mut c_name = [0; configMAX_TASK_NAME_LEN as usize];
-        let name_len = name.len().min(c_name.len() - 1);
-        c_name[..name_len].copy_from_slice(&name[..name_len]);
+        let task_name = TaskName::<{ configMAX_TASK_NAME_LEN as usize }>::new(name);
 
         let f = Box::new(f);
         let param_ptr = &*f as *const _ as *mut _;
@@ -180,7 +183,7 @@ impl Task {
         let ret = unsafe {
           xTaskCreate(
             Some(thread_start),
-            name.as_ptr().cast(),
+            task_name.as_ptr().cast(),
             stack_size,
             param_ptr,
             priority.to_freertos(),
@@ -447,7 +450,7 @@ impl FreeRtosUtils {
       }
     }
 
-    pub fn get_tick_count() -> FreeRtosTickType {
+    pub fn get_tick_count() -> TickType_t {
         unsafe { xTaskGetTickCount() }
     }
 
@@ -467,7 +470,7 @@ impl FreeRtosUtils {
         unsafe {
             let filled = uxTaskGetSystemState(
                 MaybeUninit::slice_as_mut_ptr(tasks.spare_capacity_mut()),
-                tasks_len as FreeRtosUBaseType,
+                tasks_len as UBaseType_t,
                 &mut total_run_time,
             );
             tasks.set_len(filled as usize);
@@ -499,4 +502,40 @@ impl FreeRtosUtils {
             total_run_time: total_run_time,
         }
     }
+}
+
+
+type StackOverflowHookFunction = fn(&Task, &str);
+
+static STACK_OVERFLOW_HOOK_FUNCTION: AtomicPtr<StackOverflowHookFunction> = AtomicPtr::new(default_stack_overflow_hook as *mut _);
+
+fn default_stack_overflow_hook(task: &Task, task_name: &str) {
+  panic!("task '{}' ({:?}) has overflowed its stack", task_name, task.as_raw_handle());
+}
+
+/// Set a custom stack overflow hook.
+///
+/// ````
+/// fn my_stack_overflow_hook(task: &Task, task_name: &str) {
+///   panic!("Stack overflow detected in task '{}' at {:?}.", task_name, task.as_raw_handle());
+/// }
+///
+/// freertos_rust::set_stack_overflow_hook(my_stack_overflow_hook);
+/// ```
+pub fn set_stack_overflow_hook(f: fn(&Task, &str)) {
+  STACK_OVERFLOW_HOOK_FUNCTION.store(f as *mut _, Ordering::Release);
+}
+
+#[export_name = "vApplicationStackOverflowHook"]
+extern "C" fn stack_overflow_hook(task_handle: TaskHandle_t, task_name: *const c_char) {
+  unsafe {
+    let task = Task {
+      handle: NonNull::new_unchecked(task_handle),
+    };
+
+    let task_name = CStr::from_ptr(task_name).to_str().unwrap();
+
+    let f: StackOverflowHookFunction = mem::transmute(STACK_OVERFLOW_HOOK_FUNCTION.load(Ordering::Acquire));
+    f(&task, task_name);
+  }
 }

@@ -96,7 +96,7 @@ impl Timer {
 
     unsafe fn spawn_inner<'a>(
         name: &str,
-        period_ticks: FreeRtosTickType,
+        period_ticks: TickType_t,
         auto_reload: bool,
         callback: Box<dyn Fn(Timer) + Send + 'a>,
     ) -> Result<Timer, FreeRtosError> {
@@ -147,7 +147,7 @@ impl Timer {
 
     fn spawn<F>(
         name: &str,
-        period_tick: FreeRtosTickType,
+        period_tick: TickType_t,
         auto_reload: bool,
         callback: F,
     ) -> Result<Timer, FreeRtosError>
