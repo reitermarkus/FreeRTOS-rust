@@ -1,4 +1,3 @@
-use core::ffi::c_void;
 use core::marker::PhantomData;
 use core::mem::MaybeUninit;
 use core::ptr::NonNull;
@@ -40,25 +39,29 @@ pub struct Semaphore<T: SemaphoreImpl> {
 }
 
 impl LazyInit for Binary {
-  fn init() -> NonNull<c_void> {
+  type Ptr = QueueDefinition;
+
+  fn init() -> NonNull<QueueDefinition> {
     let ptr = unsafe { xSemaphoreCreateBinary() };
     assert!(!ptr.is_null());
     unsafe { NonNull::new_unchecked(ptr) }
   }
 
-  fn destroy(ptr: NonNull<c_void>) {
+  fn destroy(ptr: NonNull<QueueDefinition>) {
     unsafe { vSemaphoreDelete(ptr.as_ptr()) }
   }
 }
 
 impl<const MAX: u32, const INITIAL: u32> LazyInit for Counting<MAX, INITIAL> {
-  fn init() -> NonNull<c_void> {
+  type Ptr = QueueDefinition;
+
+  fn init() -> NonNull<QueueDefinition> {
     let ptr = unsafe { xSemaphoreCreateCounting(MAX, INITIAL) };
     assert!(!ptr.is_null());
     unsafe { NonNull::new_unchecked(ptr) }
   }
 
-  fn destroy(ptr: NonNull<c_void>) {
+  fn destroy(ptr: NonNull<QueueDefinition>) {
     unsafe { vSemaphoreDelete(ptr.as_ptr()) }
   }
 }
@@ -115,7 +118,9 @@ pub trait SemaphoreImpl: LazyInit {}
 impl SemaphoreImpl for Binary {}
 impl<const MAX: u32, const INITIAL: u32> SemaphoreImpl for Counting<MAX, INITIAL> {}
 
-impl<T: SemaphoreImpl> Semaphore<T> {
+impl<T: SemaphoreImpl> Semaphore<T> where
+  T: LazyInit<Ptr = QueueDefinition>,
+{
   #[inline]
   pub unsafe fn from_raw_handle(handle: SemaphoreHandle_t) -> Self {
     Self { handle: LazyPtr::new_unchecked(handle) }
@@ -188,7 +193,7 @@ impl<T: SemaphoreImpl> Semaphore<T> {
 /// Holds the lock to the semaphore until we are dropped
 #[derive(Debug)]
 pub struct SemaphoreGuard<'s> {
-    handle: *mut c_void,
+    handle: *mut QueueDefinition,
     _lifetime: PhantomData<&'s ()>
 }
 

@@ -1,5 +1,4 @@
 use core::cell::UnsafeCell;
-use core::ffi::c_void;
 use core::fmt;
 use core::marker::PhantomData;
 use core::ops::{Deref, DerefMut};
@@ -18,7 +17,9 @@ pub struct Mutex<T: ?Sized> {
 }
 
 impl LazyInit for Mutex<()> {
-  fn init() -> NonNull<c_void> {
+  type Ptr = QueueDefinition;
+
+  fn init() -> NonNull<QueueDefinition> {
     unsafe {
       let ptr = xSemaphoreCreateMutex();
       assert!(!ptr.is_null());
@@ -27,7 +28,7 @@ impl LazyInit for Mutex<()> {
   }
 
   #[inline]
-  fn destroy(ptr: NonNull<c_void>) {
+  fn destroy(ptr: NonNull<QueueDefinition>) {
     unsafe { vSemaphoreDelete(ptr.as_ptr()) }
   }
 }
@@ -42,7 +43,9 @@ pub struct RecursiveMutex<T: ?Sized> {
 }
 
 impl LazyInit for RecursiveMutex<()> {
-  fn init() -> NonNull<c_void> {
+  type Ptr = QueueDefinition;
+
+  fn init() -> NonNull<QueueDefinition> {
     unsafe {
       let ptr = xSemaphoreCreateRecursiveMutex();
       assert!(!ptr.is_null());
@@ -51,7 +54,7 @@ impl LazyInit for RecursiveMutex<()> {
   }
 
   #[inline]
-  fn destroy(ptr: NonNull<c_void>) {
+  fn destroy(ptr: NonNull<QueueDefinition>) {
     unsafe { vSemaphoreDelete(ptr.as_ptr()) }
   }
 }

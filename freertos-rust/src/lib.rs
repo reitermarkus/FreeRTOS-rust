@@ -59,6 +59,7 @@
 #![feature(c_size_t)]
 #![feature(const_option)]
 #![feature(const_trait_impl)]
+#![feature(associated_type_defaults)]
 
 #[cfg_attr(any(feature = "time", feature = "sync"), macro_use)]
 extern crate alloc;

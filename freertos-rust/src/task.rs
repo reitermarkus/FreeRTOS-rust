@@ -37,7 +37,7 @@ pub use system_state::{SystemState, TaskStatus};
 /// Handle for a FreeRTOS task
 #[derive(Debug, Clone)]
 pub struct Task {
-    handle: NonNull<c_void>,
+    handle: NonNull<tskTaskControlBlock>,
 }
 
 unsafe impl Send for Task {}

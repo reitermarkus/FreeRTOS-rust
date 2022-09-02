@@ -65,6 +65,13 @@ pub fn parse_char(s: &str, c: char) -> Option<&str> {
   None
 }
 
+pub fn parse_string(s: &str) -> Option<(&str, &str)> {
+  let s2 = parse_char(s, '"')?;
+  let end = s2.chars().position(|c| c == '"')? + 2;
+
+  Some((&s[..end], &s[end..]))
+}
+
 pub fn parse_ident(s: &str) -> Option<(String, &str)> {
   let mut ident = String::new();
 

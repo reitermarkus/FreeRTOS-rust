@@ -1,4 +1,4 @@
-use core::ffi::{CStr, c_void};
+use core::ffi::CStr;
 use core::marker::PhantomData;
 use core::mem::{MaybeUninit, size_of, self};
 use core::ptr::{self, NonNull};
@@ -89,7 +89,7 @@ macro_rules! impl_receive {
 /// copied.
 #[derive(Debug)]
 pub struct Queue<T> {
-    handle: NonNull<c_void>,
+    handle: NonNull<QueueDefinition>,
     item_type: PhantomData<T>,
 }
 
@@ -173,7 +173,7 @@ impl<T> Drop for Queue<T> {
 
 /// A sender for a queue.
 pub struct Sender<T: Sized + Send + Copy> {
-  handle: NonNull<c_void>,
+  handle: NonNull<QueueDefinition>,
   item_type: PhantomData<T>,
 }
 
@@ -183,7 +183,7 @@ impl<T: Sized + Send + Copy> Sender<T> {
 
 /// A receiver for a queue.
 pub struct Receiver<T> {
-  handle: NonNull<c_void>,
+  handle: NonNull<QueueDefinition>,
   item_type: PhantomData<T>,
 }
 

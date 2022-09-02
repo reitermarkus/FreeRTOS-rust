@@ -1,4 +1,3 @@
-use core::ffi::c_void;
 use core::mem;
 use core::ptr::NonNull;
 
@@ -23,7 +22,7 @@ unsafe impl Sync for Timer {}
 /// that receives messages in a queue. Every operation has an associated waiting time
 /// for that queue to get unblocked.
 pub struct Timer {
-    handle: NonNull<c_void>,
+    handle: NonNull<tmrTimerControl>,
     detached: bool,
 }
 
