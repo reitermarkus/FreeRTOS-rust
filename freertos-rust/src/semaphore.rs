@@ -1,6 +1,5 @@
 use core::marker::PhantomData;
 use core::mem::MaybeUninit;
-use core::ptr::NonNull;
 
 use crate::lazy_init::{LazyPtr, LazyInit};
 use crate::{error::*, InterruptContext};
@@ -35,33 +34,29 @@ pub struct Counting<const MAX: u32, const INITIAL: u32> {
 
 /// A counting or binary semaphore
 pub struct Semaphore<T: SemaphoreImpl> {
-    handle: LazyPtr<T>,
+    handle: LazyPtr<T, SemaphoreHandle_t>,
 }
 
-impl LazyInit for Binary {
-  type Ptr = QueueDefinition;
-
-  fn init() -> NonNull<QueueDefinition> {
+impl LazyInit<SemaphoreHandle_t> for Binary {
+  fn init() -> Self::Ptr {
     let ptr = unsafe { xSemaphoreCreateBinary() };
     assert!(!ptr.is_null());
-    unsafe { NonNull::new_unchecked(ptr) }
+    unsafe { Self::Ptr::new_unchecked(ptr) }
   }
 
-  fn destroy(ptr: NonNull<QueueDefinition>) {
+  fn destroy(ptr: Self::Ptr) {
     unsafe { vSemaphoreDelete(ptr.as_ptr()) }
   }
 }
 
-impl<const MAX: u32, const INITIAL: u32> LazyInit for Counting<MAX, INITIAL> {
-  type Ptr = QueueDefinition;
-
-  fn init() -> NonNull<QueueDefinition> {
+impl<const MAX: u32, const INITIAL: u32> LazyInit<SemaphoreHandle_t> for Counting<MAX, INITIAL> {
+  fn init() -> Self::Ptr {
     let ptr = unsafe { xSemaphoreCreateCounting(MAX, INITIAL) };
     assert!(!ptr.is_null());
-    unsafe { NonNull::new_unchecked(ptr) }
+    unsafe { Self::Ptr::new_unchecked(ptr) }
   }
 
-  fn destroy(ptr: NonNull<QueueDefinition>) {
+  fn destroy(ptr: Self::Ptr) {
     unsafe { vSemaphoreDelete(ptr.as_ptr()) }
   }
 }
@@ -114,13 +109,11 @@ impl<const MAX: u32, const INITIAL: u32> Semaphore<Counting<MAX, INITIAL>> {
   }
 }
 
-pub trait SemaphoreImpl: LazyInit {}
+pub trait SemaphoreImpl: LazyInit<SemaphoreHandle_t> {}
 impl SemaphoreImpl for Binary {}
 impl<const MAX: u32, const INITIAL: u32> SemaphoreImpl for Counting<MAX, INITIAL> {}
 
-impl<T: SemaphoreImpl> Semaphore<T> where
-  T: LazyInit<Ptr = QueueDefinition>,
-{
+impl<T: SemaphoreImpl> Semaphore<T> {
   #[inline]
   pub unsafe fn from_raw_handle(handle: SemaphoreHandle_t) -> Self {
     Self { handle: LazyPtr::new_unchecked(handle) }
@@ -133,53 +126,37 @@ impl<T: SemaphoreImpl> Semaphore<T> where
 
   #[inline]
   pub fn give(&self) -> Result<(), FreeRtosError> {
-    let res = unsafe {
-      xSemaphoreGive(self.handle.as_ptr())
-    };
-
-    if res == pdTRUE {
-      return Ok(())
+    match unsafe { xSemaphoreGive(self.handle.as_ptr()) } {
+      pdTRUE => Ok(()),
+      errQUEUE_FULL => Err(FreeRtosError::QueueFull),
+      _ => unreachable!(),
     }
-
-    Err(FreeRtosError::QueueFull)
   }
 
   #[inline]
   pub fn give_from_isr(&self, ic: &mut InterruptContext) -> Result<(), FreeRtosError> {
-    let res = unsafe {
-      xSemaphoreGiveFromISR(self.handle.as_ptr(), ic.as_ptr())
-    };
-
-    if res == pdTRUE {
-      return Ok(())
+    match unsafe { xSemaphoreGiveFromISR(self.handle.as_ptr(), ic.as_ptr()) } {
+      pdTRUE => Ok(()),
+      errQUEUE_FULL => Err(FreeRtosError::QueueFull),
+      _ => unreachable!(),
     }
-
-    Err(FreeRtosError::QueueFull)
   }
 
   #[inline]
   pub fn take(&self, timeout: impl Into<Ticks>) -> Result<(), FreeRtosError> {
-    let res = unsafe {
-      xSemaphoreTake(self.handle.as_ptr(), timeout.into().as_ticks())
-    };
-
-    if res == pdTRUE {
-      return Ok(())
+    match unsafe { xSemaphoreTake(self.handle.as_ptr(), timeout.into().as_ticks()) } {
+      pdTRUE => Ok(()),
+      pdFALSE => Err(FreeRtosError::Timeout),
+      _ => unreachable!(),
     }
-
-    Err(FreeRtosError::Timeout)
   }
 
   pub fn take_from_isr(&self, ic: &mut InterruptContext) -> Result<(), FreeRtosError> {
-    let res = unsafe {
-      xSemaphoreTakeFromISR(self.handle.as_ptr(), ic.as_ptr())
-    };
-
-    if res == pdTRUE {
-      return Ok(())
+    match unsafe { xSemaphoreTakeFromISR(self.handle.as_ptr(), ic.as_ptr()) } {
+      pdTRUE => Ok(()),
+      pdFALSE => Err(FreeRtosError::Unavailable),
+      _ => unreachable!(),
     }
-
-    Err(FreeRtosError::QueueFull)
   }
 
   /// Lock this semaphore in RAII fashion.
@@ -193,7 +170,7 @@ impl<T: SemaphoreImpl> Semaphore<T> where
 /// Holds the lock to the semaphore until we are dropped
 #[derive(Debug)]
 pub struct SemaphoreGuard<'s> {
-    handle: *mut QueueDefinition,
+    handle: SemaphoreHandle_t,
     _lifetime: PhantomData<&'s ()>
 }
 

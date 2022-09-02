@@ -14,7 +14,7 @@ fn default_stack_overflow_hook(task: &Task, task_name: &str) {
 
 /// Set a custom stack overflow hook.
 ///
-/// ````
+/// ```
 /// fn my_stack_overflow_hook(task: &Task, task_name: &str) {
 ///   panic!("Stack overflow detected in task '{}' at {:?}.", task_name, task.as_raw_handle());
 /// }

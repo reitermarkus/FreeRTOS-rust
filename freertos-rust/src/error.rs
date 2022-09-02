@@ -5,6 +5,8 @@ pub enum FreeRtosError {
   OutOfMemory,
   /// Timeout during a blocking operation.
   Timeout,
+  /// Not available.
+  Unavailable,
   /// No more space in queue.
   QueueFull,
   StringConversionError,

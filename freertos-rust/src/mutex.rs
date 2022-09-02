@@ -2,7 +2,6 @@ use core::cell::UnsafeCell;
 use core::fmt;
 use core::marker::PhantomData;
 use core::ops::{Deref, DerefMut};
-use core::ptr::NonNull;
 use core::time::Duration;
 
 use crate::error::FreeRtosError;
@@ -12,23 +11,21 @@ use crate::ticks::*;
 
 /// A mutual exclusion primitive useful for protecting shared data.
 pub struct Mutex<T: ?Sized> {
-  handle: LazyPtr<Mutex<()>>,
+  handle: LazyPtr<Mutex<()>, SemaphoreHandle_t>,
   data: UnsafeCell<T>,
 }
 
-impl LazyInit for Mutex<()> {
-  type Ptr = QueueDefinition;
-
-  fn init() -> NonNull<QueueDefinition> {
+impl LazyInit<SemaphoreHandle_t> for Mutex<()> {
+  fn init() -> Self::Ptr {
     unsafe {
       let ptr = xSemaphoreCreateMutex();
       assert!(!ptr.is_null());
-      NonNull::new_unchecked(ptr)
+      Self::Ptr::new_unchecked(ptr)
     }
   }
 
   #[inline]
-  fn destroy(ptr: NonNull<QueueDefinition>) {
+  fn destroy(ptr: Self::Ptr) {
     unsafe { vSemaphoreDelete(ptr.as_ptr()) }
   }
 }
@@ -38,23 +35,21 @@ impl LazyInit for Mutex<()> {
 /// `RecursiveMutexGuard` does not give mutable references to the contained data,
 /// use a `RefCell` if you need this.
 pub struct RecursiveMutex<T: ?Sized> {
-  handle: LazyPtr<RecursiveMutex<()>>,
+  handle: LazyPtr<RecursiveMutex<()>, SemaphoreHandle_t>,
   data: UnsafeCell<T>,
 }
 
-impl LazyInit for RecursiveMutex<()> {
-  type Ptr = QueueDefinition;
-
-  fn init() -> NonNull<QueueDefinition> {
+impl LazyInit<SemaphoreHandle_t> for RecursiveMutex<()> {
+  fn init() -> Self::Ptr {
     unsafe {
       let ptr = xSemaphoreCreateRecursiveMutex();
       assert!(!ptr.is_null());
-      NonNull::new_unchecked(ptr)
+      Self::Ptr::new_unchecked(ptr)
     }
   }
 
   #[inline]
-  fn destroy(ptr: NonNull<QueueDefinition>) {
+  fn destroy(ptr: Self::Ptr) {
     unsafe { vSemaphoreDelete(ptr.as_ptr()) }
   }
 }
