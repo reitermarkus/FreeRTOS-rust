@@ -32,7 +32,7 @@ pub trait LazyInit<P: PtrType = *mut c_void> {
   fn destroy(ptr: NonNull<P::Type>);
 }
 
-pub struct LazyPtr<T, P>
+pub struct LazyPtr<T: ?Sized, P>
 where
   T: LazyInit<P>,
   P: PtrType,
@@ -42,7 +42,7 @@ where
   _type: PhantomData<T>,
 }
 
-impl<T, P> LazyPtr<T, P>
+impl<T: ?Sized, P> LazyPtr<T, P>
 where
   T: LazyInit<P>,
   P: PtrType,
@@ -94,7 +94,7 @@ where
   }
 }
 
-impl<T, P> Drop for LazyPtr<T, P>
+impl<T: ?Sized, P> Drop for LazyPtr<T, P>
 where
   P: PtrType,
   T: LazyInit<P>,

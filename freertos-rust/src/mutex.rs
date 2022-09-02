@@ -70,14 +70,14 @@ macro_rules! impl_mutex {
     $(#[$attr])*
     pub struct $mutex<T: ?Sized, A = Dynamic>
     where
-      ($mutex<()>, A): LazyInit<SemaphoreHandle_t>,
+      Self: LazyInit<SemaphoreHandle_t>,
     {
-      handle: LazyPtr<($mutex<()>, A), SemaphoreHandle_t>,
+      handle: LazyPtr<Self, SemaphoreHandle_t>,
       _alloc_type: PhantomData<A>,
       data: UnsafeCell<T>,
     }
 
-    impl LazyInit<SemaphoreHandle_t> for ($mutex<()>, Dynamic) {
+    impl<T: ?Sized> LazyInit<SemaphoreHandle_t> for $mutex<T, Dynamic> {
       fn init(_data: &UnsafeCell<MaybeUninit<Self::Data>>) -> Self::Ptr {
         unsafe {
           let ptr = $create();
@@ -92,7 +92,7 @@ macro_rules! impl_mutex {
       }
     }
 
-    impl LazyInit<SemaphoreHandle_t> for ($mutex<()>, Static) {
+    impl<T: ?Sized> LazyInit<SemaphoreHandle_t> for $mutex<T, Static> {
       type Data = StaticSemaphore_t;
 
       fn init(data: &UnsafeCell<MaybeUninit<Self::Data>>) -> Self::Ptr {
@@ -116,16 +116,16 @@ macro_rules! impl_mutex {
 
     unsafe impl<T: ?Sized + Send, A> Send for $mutex<T, A>
     where
-      ($mutex<()>, A): LazyInit<SemaphoreHandle_t>,
+      Self: LazyInit<SemaphoreHandle_t>,
     {}
     unsafe impl<T: ?Sized + Send, A> Sync for $mutex<T, A>
     where
-      ($mutex<()>, A): LazyInit<SemaphoreHandle_t>,
+      Self: LazyInit<SemaphoreHandle_t>,
     {}
 
     impl<T, A> $mutex<T, A>
     where
-      ($mutex<()>, A): LazyInit<SemaphoreHandle_t>,
+      Self: LazyInit<SemaphoreHandle_t>,
     {
       #[doc = concat!("Create a new `", stringify!($mutex), "` with the given inner value.")]
       pub const fn new(t: T) -> Self {
@@ -139,7 +139,7 @@ macro_rules! impl_mutex {
 
     impl<T, A> $mutex<T, A>
     where
-      ($mutex<()>, A): LazyInit<SemaphoreHandle_t>,
+      Self: LazyInit<SemaphoreHandle_t>,
     {
       /// Consume the mutex and return its inner value.
       pub fn into_inner(self) -> T {

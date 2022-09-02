@@ -102,8 +102,6 @@ impl<T, const SIZE: usize> LazyInit<QueueHandle_t> for Queue<T, SIZE, Static> {
       let data = &mut *data.get();
       let (queue, items) = data.assume_init_mut();
 
-      let q = queue.as_mut_ptr();
-
       xQueueCreateStatic(
         SIZE as UBaseType_t,
         size_of::<T>() as UBaseType_t,
