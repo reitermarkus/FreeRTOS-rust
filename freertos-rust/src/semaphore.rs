@@ -123,31 +123,30 @@ impl<const MAX: u32, const INITIAL: u32> LazyInit<SemaphoreHandle_t> for (Counti
   }
 }
 
-unsafe impl<T: Send, S: Send> Send for Semaphore<T, S>
+unsafe impl<T: Send, A: Send> Send for Semaphore<T, A>
 where
-  (T, S): SemaphoreImpl,
+  (T, A): SemaphoreImpl,
 {}
-unsafe impl<T: Send, S> Sync for Semaphore<T, S>
+unsafe impl<T: Send, A> Sync for Semaphore<T, A>
 where
-  (T, S): SemaphoreImpl,
+  (T, A): SemaphoreImpl,
 {}
 
-impl Semaphore<Binary> {
-  /// Create a new binary semaphore
+impl<A> Semaphore<Binary, A>
+where
+  (Binary, A): SemaphoreImpl,
+{
+  /// Create a new binary semaphore.
   pub const fn new_binary() -> Self {
     Self { handle: LazyPtr::new(), _alloc_type: PhantomData }
   }
 }
 
-impl Semaphore<Binary, Static> {
-  /// Create a new binary semaphore
-  pub const fn new_binary_static() -> Pin<Self> {
-    unsafe { Pin::new_unchecked(Self { handle: LazyPtr::new(), _alloc_type: PhantomData }) }
-  }
-}
-
-impl<const MAX: u32, const INITIAL: u32> Semaphore<Counting<MAX, INITIAL>> {
-  /// Create a new counting semaphore
+impl<const MAX: u32, const INITIAL: u32, A> Semaphore<Counting<MAX, INITIAL>, A>
+where
+  (Counting<MAX, INITIAL>, A): SemaphoreImpl,
+{
+  /// Create a new counting semaphore.
   pub const fn new_counting() -> Self {
     assert!(INITIAL <= MAX);
 
@@ -155,23 +154,12 @@ impl<const MAX: u32, const INITIAL: u32> Semaphore<Counting<MAX, INITIAL>> {
   }
 }
 
-impl<const MAX: u32, const INITIAL: u32> Semaphore<Counting<MAX, INITIAL>, Static> {
-  /// Create a new counting semaphore
-  pub const fn new_counting_static() -> Pin<Self> {
-    assert!(INITIAL <= MAX);
-
-    unsafe { Pin::new_unchecked(Self { handle: LazyPtr::new(), _alloc_type: PhantomData }) }
-  }
-}
-
 pub trait SemaphoreImpl: LazyInit<SemaphoreHandle_t> {}
 
-impl SemaphoreImpl for (Binary, Dynamic) {}
-impl SemaphoreImpl for (Binary, Static) {}
-
-impl<const MAX: u32, const INITIAL: u32> SemaphoreImpl for (Counting<MAX, INITIAL>, Dynamic) {}
-impl<const MAX: u32, const INITIAL: u32> SemaphoreImpl for (Counting<MAX, INITIAL>, Static) {}
-
+impl<T, A> SemaphoreImpl for (T, A)
+where
+  (T, A): LazyInit<SemaphoreHandle_t>
+{}
 impl SemaphoreHandle {
   #[inline]
   pub fn give(&self) -> Result<(), FreeRtosError> {

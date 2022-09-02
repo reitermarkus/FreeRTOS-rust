@@ -1,4 +1,4 @@
-#include "FreeRTOSConfig.h"
+#include <FreeRTOSConfig.h>
 
 #ifdef configASSERT
 #error "`configASSERT` is redefined by this crate, remove it or use `#ifndef RUST` to disable it."

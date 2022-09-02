@@ -113,13 +113,13 @@ pub use crate::assert::*;
 #[cfg(feature = "interrupt")]
 pub use crate::isr::*;
 #[cfg(feature = "sync")]
-pub use crate::mutex::{Mutex, RecursiveMutex};
+pub use crate::mutex::*;
 #[cfg(feature = "sync")]
 pub use crate::queue::*;
 #[cfg(feature = "sync")]
 pub use crate::semaphore::Semaphore;
 #[cfg(any(feature = "time", feature = "sync"))]
-pub use crate::task::{Task, CurrentTask};
+pub use crate::task::*;
 #[cfg(feature = "time")]
 pub use crate::timers::*;
 #[cfg(any(feature = "time", feature = "sync"))]

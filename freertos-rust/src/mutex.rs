@@ -14,13 +14,10 @@ use crate::ticks::*;
 
 macro_rules! guard_impl_deref_mut {
   (MutexGuard) => {
-    impl<T: ?Sized, A> DerefMut for MutexGuard<'_, T, A>
-    where
-      (Mutex<()>, A): LazyInit<SemaphoreHandle_t>,
-    {
+    impl<T: ?Sized> DerefMut for MutexGuard<'_, T> {
       /// Mutably dereferences the locked value.
       fn deref_mut(&mut self) -> &mut T {
-          unsafe { &mut *self.lock.data.get() }
+          unsafe { &mut *self.data.get() }
       }
     }
   };
@@ -126,18 +123,18 @@ macro_rules! impl_mutex {
     impl<T: ?Sized> $mutex<T, Dynamic> {
       /// Lock the mutex.
       #[inline]
-      pub fn lock(&self) -> Result<$guard<'_, T, Dynamic>, FreeRtosError> {
+      pub fn lock(&self) -> Result<$guard<'_, T>, FreeRtosError> {
         self.timed_lock(Duration::MAX)
       }
 
       /// Try locking the mutex and return immediately.
       #[inline]
-      pub fn try_lock(&self) -> Result<$guard<'_, T, Dynamic>, FreeRtosError> {
+      pub fn try_lock(&self) -> Result<$guard<'_, T>, FreeRtosError> {
         self.timed_lock(Duration::ZERO)
       }
 
       /// Try locking the mutex until the given `timeout`.
-      pub fn timed_lock(&self, timeout: impl Into<Ticks>) -> Result<$guard<'_, T, Dynamic>, FreeRtosError> {
+      pub fn timed_lock(&self, timeout: impl Into<Ticks>) -> Result<$guard<'_, T>, FreeRtosError> {
         let timeout = timeout.into();
 
         let res = unsafe {
@@ -145,7 +142,7 @@ macro_rules! impl_mutex {
         };
 
         if res == pdTRUE {
-          return Ok($guard { lock: self, _not_send_and_sync: PhantomData })
+          return Ok($guard { handle: self.handle.as_ptr(), data: &self.data })
         }
 
         Err(FreeRtosError::Timeout)
@@ -155,29 +152,26 @@ macro_rules! impl_mutex {
     impl<T: ?Sized> $mutex<T, Static> {
       /// Lock the pinned mutex.
       #[inline]
-      pub fn lock(self: Pin<&Self>) -> Result<$guard<'_, T, Static>, FreeRtosError> {
+      pub fn lock(self: Pin<&Self>) -> Result<$guard<'_, T>, FreeRtosError> {
         self.timed_lock(Duration::MAX)
       }
 
       /// Try locking the pinned mutex and return immediately.
       #[inline]
-      pub fn try_lock(self: Pin<&Self>) -> Result<$guard<'_, T, Static>, FreeRtosError> {
+      pub fn try_lock(self: Pin<&Self>) -> Result<$guard<'_, T>, FreeRtosError> {
         self.timed_lock(Duration::ZERO)
       }
 
       /// Try locking the pinned mutex until the given `timeout`.
-      pub fn timed_lock(self: Pin<&Self>, timeout: impl Into<Ticks>) -> Result<$guard<'_, T, Static>, FreeRtosError> {
+      pub fn timed_lock<'p>(self: Pin<&'p Self>, timeout: impl Into<Ticks>) -> Result<$guard<'p, T>, FreeRtosError> {
         let timeout = timeout.into();
 
-        let res = unsafe {
-          $take(self.handle.as_ptr(), timeout.as_ticks())
-        };
-
-        if res == pdTRUE {
-          return Ok($guard { lock: self.get_ref(), _not_send_and_sync: PhantomData })
+        let this = self.get_ref();
+        let handle = this.handle.as_ptr();
+        match unsafe { $take(handle, timeout.as_ticks()) } {
+          pdTRUE => Ok($guard { handle, data: &this.data }),
+          _ => Err(FreeRtosError::Timeout),
         }
-
-        Err(FreeRtosError::Timeout)
       }
     }
 
@@ -208,42 +202,30 @@ macro_rules! impl_mutex {
     // #[must_not_suspend = "holding a `Mutex` across suspend points can cause deadlocks, delays, \
     //                       and cause Futures to not implement `Send`"]
     #[clippy::has_significant_drop]
-    pub struct $guard<'m, T: ?Sized, A>
-    where
-      ($mutex<()>, A): LazyInit<SemaphoreHandle_t>,
-    {
-      lock: &'m $mutex<T, A>,
-      _not_send_and_sync: PhantomData<*const ()>,
+    pub struct $guard<'m, T: ?Sized> {
+      handle: SemaphoreHandle_t,
+      data: &'m UnsafeCell<T>,
     }
 
-    unsafe impl<T: ?Sized + Sync, A> Sync for $guard<'_, T, A>
-    where
-      ($mutex<()>, A): LazyInit<SemaphoreHandle_t>,
-    {}
+    unsafe impl<T: ?Sized + Sync> Sync for $guard<'_, T> {}
 
-    impl<T: ?Sized, A> Deref for $guard<'_, T, A>
-    where
-      ($mutex<()>, A): LazyInit<SemaphoreHandle_t>,
-    {
+    impl<T: ?Sized> Deref for $guard<'_, T> {
       type Target = T;
 
       /// Dereferences the locked value.
       #[inline]
       fn deref(&self) -> &T {
-        unsafe { &*self.lock.data.get() }
+        unsafe { &*self.data.get() }
       }
     }
 
     guard_impl_deref_mut!($guard);
 
-    impl<T: ?Sized, A> Drop for $guard<'_, T, A>
-    where
-      ($mutex<()>, A): LazyInit<SemaphoreHandle_t>,
-    {
+    impl<T: ?Sized> Drop for $guard<'_, T> {
       /// Unlocks the mutex.
       #[inline]
       fn drop(&mut self) {
-        unsafe { $give(self.lock.handle.as_ptr()); }
+        unsafe { $give(self.handle); }
       }
     }
   };
