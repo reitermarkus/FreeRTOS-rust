@@ -1,205 +1,275 @@
 use core::cell::UnsafeCell;
 use core::fmt;
 use core::marker::PhantomData;
+use core::mem::MaybeUninit;
 use core::ops::{Deref, DerefMut};
 use core::time::Duration;
+use core::pin::Pin;
 
+use crate::alloc::{Dynamic, Static};
 use crate::error::FreeRtosError;
 use crate::lazy_init::{LazyInit, LazyPtr};
 use crate::shim::*;
 use crate::ticks::*;
 
-/// A mutual exclusion primitive useful for protecting shared data.
-pub struct Mutex<T: ?Sized> {
-  handle: LazyPtr<Mutex<()>, SemaphoreHandle_t>,
-  data: UnsafeCell<T>,
-}
-
-impl LazyInit<SemaphoreHandle_t> for Mutex<()> {
-  fn init() -> Self::Ptr {
-    unsafe {
-      let ptr = xSemaphoreCreateMutex();
-      assert!(!ptr.is_null());
-      Self::Ptr::new_unchecked(ptr)
+macro_rules! guard_impl_deref_mut {
+  (MutexGuard) => {
+    impl<T: ?Sized, A> DerefMut for MutexGuard<'_, T, A>
+    where
+      (Mutex<()>, A): LazyInit<SemaphoreHandle_t>,
+    {
+      /// Mutably dereferences the locked value.
+      fn deref_mut(&mut self) -> &mut T {
+          unsafe { &mut *self.lock.data.get() }
+      }
     }
-  }
-
-  #[inline]
-  fn destroy(ptr: Self::Ptr) {
-    unsafe { vSemaphoreDelete(ptr.as_ptr()) }
-  }
+  };
+  ($guard:ident) => {};
 }
 
-/// A mutual exclusion primitive useful for protecting shared data which can be locked recursively.
-///
-/// `RecursiveMutexGuard` does not give mutable references to the contained data,
-/// use a `RefCell` if you need this.
-pub struct RecursiveMutex<T: ?Sized> {
-  handle: LazyPtr<RecursiveMutex<()>, SemaphoreHandle_t>,
-  data: UnsafeCell<T>,
-}
-
-impl LazyInit<SemaphoreHandle_t> for RecursiveMutex<()> {
-  fn init() -> Self::Ptr {
-    unsafe {
-      let ptr = xSemaphoreCreateRecursiveMutex();
-      assert!(!ptr.is_null());
-      Self::Ptr::new_unchecked(ptr)
-    }
-  }
-
-  #[inline]
-  fn destroy(ptr: Self::Ptr) {
-    unsafe { vSemaphoreDelete(ptr.as_ptr()) }
-  }
+macro_rules! guard_deref_mut_doc {
+  (MutexGuard) => { " and [`DerefMut`]" };
+  ($guard:ident) => { "" };
 }
 
 macro_rules! impl_mutex {
-  ($name:ident, $guard:ident) => {
-    unsafe impl<T: ?Sized + Send> Send for $name<T> {}
-    unsafe impl<T: ?Sized + Send> Sync for $name<T> {}
+  (
+    $(#[$attr:meta])*
+    $mutex:ident,
+    $guard:ident,
+    $create:ident,
+    $create_static:ident,
+    $take:ident,
+    $give:ident,
+    $variant_name:expr,
+  ) => {
+    $(#[$attr])*
+    pub struct $mutex<T: ?Sized, A = Dynamic>
+    where
+      ($mutex<()>, A): LazyInit<SemaphoreHandle_t>,
+    {
+      handle: LazyPtr<($mutex<()>, A), SemaphoreHandle_t>,
+      _alloc_type: PhantomData<A>,
+      data: UnsafeCell<T>,
+    }
 
-    impl<T> $name<T> {
-      /// Create a new mutex with the given inner value.
-      pub const fn new(t: T) -> Self {
-        Self {
-          handle: LazyPtr::new(),
-          data: UnsafeCell::new(t),
+    impl LazyInit<SemaphoreHandle_t> for ($mutex<()>, Dynamic) {
+      fn init(_data: &UnsafeCell<MaybeUninit<Self::Data>>) -> Self::Ptr {
+        unsafe {
+          let ptr = $create();
+          assert!(!ptr.is_null());
+          Self::Ptr::new_unchecked(ptr)
         }
       }
 
+      #[inline]
+      fn destroy(ptr: Self::Ptr) {
+        unsafe { vSemaphoreDelete(ptr.as_ptr()) }
+      }
+    }
+
+    impl LazyInit<SemaphoreHandle_t> for ($mutex<()>, Static) {
+      type Data = StaticQueue_t;
+
+      fn init(data: &UnsafeCell<MaybeUninit<Self::Data>>) -> Self::Ptr {
+        unsafe {
+          let data = &mut *data.get();
+          let ptr = $create_static(data.as_mut_ptr());
+          assert!(!ptr.is_null());
+          Self::Ptr::new_unchecked(ptr)
+        }
+      }
+
+      fn cancel_init_supported() -> bool {
+        false
+      }
+
+      #[inline]
+      fn destroy(ptr: Self::Ptr) {
+        drop(ptr)
+      }
+    }
+
+    unsafe impl<T: ?Sized + Send, A> Send for $mutex<T, A>
+    where
+      ($mutex<()>, A): LazyInit<SemaphoreHandle_t>,
+    {}
+    unsafe impl<T: ?Sized + Send, A> Sync for $mutex<T, A>
+    where
+      ($mutex<()>, A): LazyInit<SemaphoreHandle_t>,
+    {}
+
+    impl<T, A> $mutex<T, A>
+    where
+      ($mutex<()>, A): LazyInit<SemaphoreHandle_t>,
+    {
+      #[doc = concat!("Create a new `", stringify!($mutex), "` with the given inner value.")]
+      pub const fn new(t: T) -> Self {
+        Self {
+          handle: LazyPtr::new(),
+          _alloc_type: PhantomData,
+          data: UnsafeCell::new(t),
+        }
+      }
+    }
+
+    impl<T, A> $mutex<T, A>
+    where
+      ($mutex<()>, A): LazyInit<SemaphoreHandle_t>,
+    {
       /// Consume the mutex and return its inner value.
       pub fn into_inner(self) -> T {
         self.data.into_inner()
       }
     }
 
-    impl<T: ?Sized> $name<T> {
-      pub fn lock(&self) -> Result<$guard<'_, T>, FreeRtosError> {
+    impl<T: ?Sized> $mutex<T, Dynamic> {
+      /// Lock the mutex.
+      #[inline]
+      pub fn lock(&self) -> Result<$guard<'_, T, Dynamic>, FreeRtosError> {
         self.timed_lock(Duration::MAX)
       }
 
-      pub fn try_lock(&self) -> Result<$guard<'_, T>, FreeRtosError> {
+      /// Try locking the mutex and return immediately.
+      #[inline]
+      pub fn try_lock(&self) -> Result<$guard<'_, T, Dynamic>, FreeRtosError> {
         self.timed_lock(Duration::ZERO)
+      }
+
+      /// Try locking the mutex until the given `timeout`.
+      pub fn timed_lock(&self, timeout: impl Into<Ticks>) -> Result<$guard<'_, T, Dynamic>, FreeRtosError> {
+        let timeout = timeout.into();
+
+        let res = unsafe {
+          $take(self.handle.as_ptr(), timeout.as_ticks())
+        };
+
+        if res == pdTRUE {
+          return Ok($guard { lock: self, _not_send_and_sync: PhantomData })
+        }
+
+        Err(FreeRtosError::Timeout)
       }
     }
 
-    impl<T: ?Sized + fmt::Debug> fmt::Debug for $name<T> {
-        fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-          let mut d = f.debug_struct(stringify!($name));
+    impl<T: ?Sized> $mutex<T, Static> {
+      /// Lock the pinned mutex.
+      #[inline]
+      pub fn lock(self: Pin<&Self>) -> Result<$guard<'_, T, Static>, FreeRtosError> {
+        self.timed_lock(Duration::MAX)
+      }
 
-          d.field("handle", &self.handle.as_ptr());
+      /// Try locking the pinned mutex and return immediately.
+      #[inline]
+      pub fn try_lock(self: Pin<&Self>) -> Result<$guard<'_, T, Static>, FreeRtosError> {
+        self.timed_lock(Duration::ZERO)
+      }
 
-          match self.try_lock() {
-            Ok(guard) => d.field("data", &&*guard),
-            Err(_) => d.field("data", &format_args!("<locked>")),
-          };
+      /// Try locking the pinned mutex until the given `timeout`.
+      pub fn timed_lock(self: Pin<&Self>, timeout: impl Into<Ticks>) -> Result<$guard<'_, T, Static>, FreeRtosError> {
+        let timeout = timeout.into();
 
-          d.finish()
+        let res = unsafe {
+          $take(self.handle.as_ptr(), timeout.as_ticks())
+        };
+
+        if res == pdTRUE {
+          return Ok($guard { lock: self.get_ref(), _not_send_and_sync: PhantomData })
         }
+
+        Err(FreeRtosError::Timeout)
+      }
+    }
+
+    impl<T: ?Sized + fmt::Debug> fmt::Debug for $mutex<T> {
+      fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let mut d = f.debug_struct(stringify!($mutex));
+
+        d.field("handle", &self.handle.as_ptr());
+
+        match self.try_lock() {
+          Ok(guard) => d.field("data", &&*guard),
+          Err(_) => d.field("data", &format_args!("<locked>")),
+        };
+
+        d.finish()
+      }
+    }
+
+    /// An RAII implementation of a “scoped lock” of a
+    #[doc = concat!($variant_name, " mutex.")]
+    ///  When this structure is
+    /// dropped (falls out of scope), the lock will be unlocked.
+    ///
+    /// The data protected by the mutex can be accessed through this guard via its [`Deref`]
+    #[doc = concat!(guard_deref_mut_doc!($guard), "implementations.")]
+    ///
+    #[must_use = concat!("if unused the `", stringify!($mutex), "` will unlock immediately")]
+    // #[must_not_suspend = "holding a `Mutex` across suspend points can cause deadlocks, delays, \
+    //                       and cause Futures to not implement `Send`"]
+    #[clippy::has_significant_drop]
+    pub struct $guard<'m, T: ?Sized, A>
+    where
+      ($mutex<()>, A): LazyInit<SemaphoreHandle_t>,
+    {
+      lock: &'m $mutex<T, A>,
+      _not_send_and_sync: PhantomData<*const ()>,
+    }
+
+    unsafe impl<T: ?Sized + Sync, A> Sync for $guard<'_, T, A>
+    where
+      ($mutex<()>, A): LazyInit<SemaphoreHandle_t>,
+    {}
+
+    impl<T: ?Sized, A> Deref for $guard<'_, T, A>
+    where
+      ($mutex<()>, A): LazyInit<SemaphoreHandle_t>,
+    {
+      type Target = T;
+
+      /// Dereferences the locked value.
+      #[inline]
+      fn deref(&self) -> &T {
+        unsafe { &*self.lock.data.get() }
+      }
+    }
+
+    guard_impl_deref_mut!($guard);
+
+    impl<T: ?Sized, A> Drop for $guard<'_, T, A>
+    where
+      ($mutex<()>, A): LazyInit<SemaphoreHandle_t>,
+    {
+      /// Unlocks the mutex.
+      #[inline]
+      fn drop(&mut self) {
+        unsafe { $give(self.lock.handle.as_ptr()); }
+      }
     }
   };
 }
 
-impl_mutex!(Mutex, MutexGuard);
-impl_mutex!(RecursiveMutex, RecursiveMutexGuard);
+impl_mutex!(
+  /// A mutual exclusion primitive useful for protecting shared data.
+  Mutex,
+  MutexGuard,
+  xSemaphoreCreateMutex,
+  xSemaphoreCreateMutexStatic,
+  xSemaphoreTake,
+  xSemaphoreGive,
+  "",
+);
 
-impl<T: ?Sized> Mutex<T> {
-  pub fn timed_lock(&self, timeout: impl Into<Ticks>) -> Result<MutexGuard<'_, T>, FreeRtosError> {
-    let timeout = timeout.into();
-
-    let res = unsafe {
-      xSemaphoreTake(self.handle.as_ptr(), timeout.as_ticks())
-    };
-
-    if res == pdTRUE {
-      return Ok(MutexGuard { lock: self, _not_send_and_sync: PhantomData })
-    }
-
-    Err(FreeRtosError::Timeout)
-  }
-}
-
-impl<T: ?Sized> RecursiveMutex<T> {
-  pub fn timed_lock(&self, timeout: impl Into<Ticks>) -> Result<RecursiveMutexGuard<'_, T>, FreeRtosError> {
-    let timeout = timeout.into();
-
-    let res = unsafe {
-      xSemaphoreTakeRecursive(self.handle.as_ptr(), timeout.as_ticks())
-    };
-
-    if res == pdTRUE {
-      return Ok(RecursiveMutexGuard { lock: self, _not_send_and_sync: PhantomData })
-    }
-
-    Err(FreeRtosError::Timeout)
-  }
-}
-
-/// An RAII implementation of a “scoped lock” of a mutex. When this structure is
-/// dropped (falls out of scope), the lock will be unlocked.
-///
-/// The data protected by the mutex can be accessed through this
-/// guard via its `Deref` and `DerefMut` implementations.
-#[must_use = "if unused the `Mutex` will unlock immediately"]
-// #[must_not_suspend = "holding a `Mutex` across suspend points can cause deadlocks, delays, \
-//                       and cause Futures to not implement `Send`"]
-#[clippy::has_significant_drop]
-pub struct MutexGuard<'m, T: ?Sized> {
-    lock: &'m Mutex<T>,
-    _not_send_and_sync: PhantomData<*const ()>,
-}
-
-unsafe impl<T: ?Sized + Sync> Sync for MutexGuard<'_, T> {}
-
-impl<T: ?Sized> Deref for MutexGuard<'_, T> {
-  type Target = T;
-
-  fn deref(&self) -> &T {
-      unsafe { &*self.lock.data.get() }
-  }
-}
-
-impl<T: ?Sized> DerefMut for MutexGuard<'_, T> {
-  fn deref_mut(&mut self) -> &mut T {
-      unsafe { &mut *self.lock.data.get() }
-  }
-}
-
-impl<T: ?Sized> Drop for MutexGuard<'_, T> {
-  #[inline]
-  fn drop(&mut self) {
-    unsafe { xSemaphoreGive(self.lock.handle.as_ptr()); }
-  }
-}
-
-/// An RAII implementation of a “scoped lock” of a recursive mutex. When this structure is
-/// dropped (falls out of scope), the lock will be unlocked.
-///
-/// The data protected by the mutex can be accessed through this
-/// guard via its `Deref` implementations.
-#[must_use = "if unused the `RecursiveMutex` will unlock immediately"]
-// #[must_not_suspend = "holding a `RecursiveMutex` across suspend points can cause deadlocks, delays, \
-//                       and cause Futures to not implement `Send`"]
-#[clippy::has_significant_drop]
-pub struct RecursiveMutexGuard<'m, T: ?Sized> {
-  lock: &'m RecursiveMutex<T>,
-  _not_send_and_sync: PhantomData<*const ()>,
-}
-
-unsafe impl<T: ?Sized + Sync> Sync for RecursiveMutexGuard<'_, T> {}
-
-impl<T: ?Sized> Deref for RecursiveMutexGuard<'_, T> {
-  type Target = T;
-
-  fn deref(&self) -> &T {
-    unsafe { &*self.lock.data.get() }
-  }
-}
-
-impl<T: ?Sized> Drop for RecursiveMutexGuard<'_, T> {
-  #[inline]
-  fn drop(&mut self) {
-    unsafe { xSemaphoreGiveRecursive(self.lock.handle.as_ptr()); }
-  }
-}
+impl_mutex!(
+  /// A mutual exclusion primitive useful for protecting shared data which can be locked recursively.
+  ///
+  /// [`RecursiveMutexGuard`] does not give mutable references to the contained data,
+  /// use a [`RefCell`](core::cell::RefCell) if you need this.
+  RecursiveMutex,
+  RecursiveMutexGuard,
+  xSemaphoreCreateRecursiveMutex,
+  xSemaphoreCreateRecursiveMutexStatic,
+  xSemaphoreTakeRecursive,
+  xSemaphoreGiveRecursive,
+  "recursive",
+);

@@ -59,10 +59,11 @@
 #![feature(c_size_t)]
 #![feature(const_option)]
 #![feature(const_trait_impl)]
+#![feature(const_pin)]
 #![feature(associated_type_defaults)]
 
 #[cfg_attr(any(feature = "time", feature = "sync"), macro_use)]
-extern crate alloc;
+extern crate alloc as alloc2;
 
 pub mod assert;
 mod error;
@@ -70,6 +71,8 @@ mod shim;
 
 #[cfg(feature = "alloc")]
 mod allocator;
+
+pub mod alloc;
 
 #[cfg(feature = "critical_section")]
 pub mod critical_section;
@@ -81,13 +84,13 @@ mod isr;
 #[cfg(feature = "sync")]
 mod lazy_init;
 #[cfg(feature = "sync")]
-mod mutex;
+pub mod mutex;
 #[cfg(feature = "sync")]
 mod queue;
 #[cfg(feature = "sync")]
-mod semaphore;
+pub mod semaphore;
 #[cfg(any(feature = "time", feature = "sync"))]
-mod task;
+pub mod task;
 #[cfg(feature = "time")]
 mod timers;
 #[cfg(any(feature = "time", feature = "sync"))]
@@ -110,13 +113,13 @@ pub use crate::assert::*;
 #[cfg(feature = "interrupt")]
 pub use crate::isr::*;
 #[cfg(feature = "sync")]
-pub use crate::mutex::*;
+pub use crate::mutex::{Mutex, RecursiveMutex};
 #[cfg(feature = "sync")]
 pub use crate::queue::*;
 #[cfg(feature = "sync")]
-pub use crate::semaphore::*;
+pub use crate::semaphore::Semaphore;
 #[cfg(any(feature = "time", feature = "sync"))]
-pub use crate::task::*;
+pub use crate::task::{Task, CurrentTask};
 #[cfg(feature = "time")]
 pub use crate::timers::*;
 #[cfg(any(feature = "time", feature = "sync"))]

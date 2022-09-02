@@ -1,5 +1,4 @@
-use crate::Scheduler;
-
+use crate::task::Scheduler;
 use crate::shim::*;
 use crate::ticks::*;
 

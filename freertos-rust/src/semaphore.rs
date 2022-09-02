@@ -1,30 +1,16 @@
+use core::cell::UnsafeCell;
+use core::marker::PhantomData;
 use core::mem::MaybeUninit;
 use core::ops::Deref;
+use core::pin::Pin;
 
+use crate::alloc::{Dynamic, Static};
 use crate::lazy_init::{LazyPtr, LazyInit, PtrType};
 use crate::{error::*, InterruptContext};
 use crate::shim::*;
 use crate::ticks::*;
 
 pub type StaticSemaphore = StaticSemaphore_t;
-
-#[macro_export]
-macro_rules! static_semaphore {
-    () => {{
-      static mut STATIC_SEMAPHORE: ::core::mem::MaybeUninit<$crate::StaticSemaphore> = ::core::mem::MaybeUninit::uninit();
-      static mut SEMAPHORE: ::core::mem::MaybeUninit::<Semaphore<Binary>> = ::core::mem::MaybeUninit::uninit();
-      unsafe {
-        $crate::Semaphore::new_binary_static(&mut STATIC_SEMAPHORE, &mut SEMAPHORE)
-      }
-    }};
-    ($max:expr, $initial:expr) => {
-      static mut STATIC_SEMAPHORE: ::core::mem::MaybeUninit<$crate::StaticSemaphore> = ::core::mem::MaybeUninit::uninit();
-      static mut SEMAPHORE: ::core::mem::MaybeUninit::<Semaphore<Counting>> = ::core::mem::MaybeUninit::uninit();
-      unsafe {
-        $crate::Semaphore::Counting<$max, $initial>::new_counting_static(&mut STATIC_SEMAPHORE, &mut SEMAPHORE)
-      }
-    };
-}
 
 #[non_exhaustive]
 pub struct Binary {}
@@ -68,11 +54,11 @@ where
   (T, S): SemaphoreImpl,
 {
     handle: LazyPtr<(T, S), SemaphoreHandle_t>,
-    storage: MaybeUninit<<(T, S) as SemaphoreImpl>::Storage>,
+    _alloc_type: PhantomData<S>,
 }
 
 impl LazyInit<SemaphoreHandle_t> for (Binary, Dynamic) {
-  fn init() -> Self::Ptr {
+  fn init(_data: &UnsafeCell<MaybeUninit<()>>) -> Self::Ptr {
     let ptr = unsafe { xSemaphoreCreateBinary() };
     assert!(!ptr.is_null());
     unsafe { Self::Ptr::new_unchecked(ptr) }
@@ -84,21 +70,28 @@ impl LazyInit<SemaphoreHandle_t> for (Binary, Dynamic) {
 }
 
 impl LazyInit<SemaphoreHandle_t> for (Binary, Static) {
-  fn init() -> Self::Ptr {
-    let static_semaphore: &'static mut MaybeUninit<StaticSemaphore> = todo!();
+  type Data = StaticSemaphore;
 
-    let ptr = unsafe { xSemaphoreCreateBinaryStatic(static_semaphore.as_mut_ptr()) };
-    assert!(!ptr.is_null());
-    unsafe { Self::Ptr::new_unchecked(ptr) }
+  fn init(data: &UnsafeCell<MaybeUninit<Self::Data>>) -> Self::Ptr {
+    unsafe {
+      let data = &mut *data.get();
+      let ptr = xSemaphoreCreateBinaryStatic(data.as_mut_ptr());
+      assert!(!ptr.is_null());
+      Self::Ptr::new_unchecked(ptr)
+    }
+  }
+
+  fn cancel_init_supported() -> bool {
+    false
   }
 
   fn destroy(ptr: Self::Ptr) {
-    unsafe { vSemaphoreDelete(ptr.as_ptr()) }
+    drop(ptr)
   }
 }
 
 impl<const MAX: u32, const INITIAL: u32> LazyInit<SemaphoreHandle_t> for (Counting<MAX, INITIAL>, Dynamic) {
-  fn init() -> Self::Ptr {
+  fn init(_data: &UnsafeCell<MaybeUninit<()>>) -> Self::Ptr {
     let ptr = unsafe { xSemaphoreCreateCounting(MAX, INITIAL) };
     assert!(!ptr.is_null());
     unsafe { Self::Ptr::new_unchecked(ptr) }
@@ -110,12 +103,23 @@ impl<const MAX: u32, const INITIAL: u32> LazyInit<SemaphoreHandle_t> for (Counti
 }
 
 impl<const MAX: u32, const INITIAL: u32> LazyInit<SemaphoreHandle_t> for (Counting<MAX, INITIAL>, Static) {
-  fn init() -> Self::Ptr {
-    todo!()
+  type Data = StaticSemaphore;
+
+  fn init(data: &UnsafeCell<MaybeUninit<Self::Data>>) -> Self::Ptr {
+    unsafe {
+      let data = &mut *data.get();
+      let ptr = xSemaphoreCreateCountingStatic(MAX, INITIAL, data.as_mut_ptr());
+      assert!(!ptr.is_null());
+      Self::Ptr::new_unchecked(ptr)
+    }
+  }
+
+  fn cancel_init_supported() -> bool {
+    false
   }
 
   fn destroy(ptr: Self::Ptr) {
-    unsafe { vSemaphoreDelete(ptr.as_ptr()) }
+    drop(ptr)
   }
 }
 
@@ -128,71 +132,45 @@ where
   (T, S): SemaphoreImpl,
 {}
 
-pub enum Dynamic {}
-pub enum Static {}
-
-impl<S> Semaphore<Binary, S>
-where
-  (Binary, S): SemaphoreImpl,
-{
+impl Semaphore<Binary> {
   /// Create a new binary semaphore
   pub const fn new_binary() -> Self {
-    Self { handle: LazyPtr::new(), storage: MaybeUninit::uninit() }
+    Self { handle: LazyPtr::new(), _alloc_type: PhantomData }
+  }
+}
+
+impl Semaphore<Binary, Static> {
+  /// Create a new binary semaphore
+  pub const fn new_binary_static() -> Pin<Self> {
+    unsafe { Pin::new_unchecked(Self { handle: LazyPtr::new(), _alloc_type: PhantomData }) }
   }
 }
 
 impl<const MAX: u32, const INITIAL: u32> Semaphore<Counting<MAX, INITIAL>> {
-  pub fn new_counting_static(
-    static_semaphore: &'static mut MaybeUninit<StaticSemaphore>,
-    semaphore: &'static mut MaybeUninit<Self>,
-  ) -> &'static mut Self {
-    assert!(INITIAL <= MAX);
-
-    unsafe {
-      let handle = xSemaphoreCreateCountingStatic(
-        MAX, INITIAL,
-        static_semaphore.as_mut_ptr(),
-      );
-
-      semaphore.write(Semaphore::from_raw_handle(handle))
-    }
-  }
-
   /// Create a new counting semaphore
   pub const fn new_counting() -> Self {
     assert!(INITIAL <= MAX);
 
-    Self { handle: LazyPtr::new(), storage: MaybeUninit::uninit() }
+    Self { handle: LazyPtr::new(), _alloc_type: PhantomData }
   }
 }
 
-pub trait SemaphoreImpl: LazyInit<SemaphoreHandle_t> {
-  type Storage = ();
+impl<const MAX: u32, const INITIAL: u32> Semaphore<Counting<MAX, INITIAL>, Static> {
+  /// Create a new counting semaphore
+  pub const fn new_counting_static() -> Pin<Self> {
+    assert!(INITIAL <= MAX);
+
+    unsafe { Pin::new_unchecked(Self { handle: LazyPtr::new(), _alloc_type: PhantomData }) }
+  }
 }
+
+pub trait SemaphoreImpl: LazyInit<SemaphoreHandle_t> {}
 
 impl SemaphoreImpl for (Binary, Dynamic) {}
-
-impl SemaphoreImpl for (Binary, Static) {
-  type Storage = StaticSemaphore_t;
-}
-
+impl SemaphoreImpl for (Binary, Static) {}
 
 impl<const MAX: u32, const INITIAL: u32> SemaphoreImpl for (Counting<MAX, INITIAL>, Dynamic) {}
-
-impl<T> Semaphore<T, Dynamic>
-where
-  (T, Dynamic): SemaphoreImpl
-{
-  #[inline]
-  pub unsafe fn from_raw_handle(handle: SemaphoreHandle_t) -> Self {
-    Self { handle: LazyPtr::new_unchecked(handle), storage: MaybeUninit::uninit() }
-  }
-
-  #[inline]
-  pub fn as_raw_handle(&self) -> SemaphoreHandle_t {
-    self.handle.as_ptr()
-  }
-}
+impl<const MAX: u32, const INITIAL: u32> SemaphoreImpl for (Counting<MAX, INITIAL>, Static) {}
 
 impl SemaphoreHandle {
   #[inline]
@@ -240,6 +218,7 @@ impl SemaphoreHandle {
 
 /// Holds the lock to the semaphore until we are dropped
 #[derive(Debug)]
+#[must_use = ""]
 pub struct SemaphoreGuard<'s> {
   handle: &'s SemaphoreHandle,
 }

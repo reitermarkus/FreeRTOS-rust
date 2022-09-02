@@ -1,7 +1,11 @@
+use core::cell::UnsafeCell;
 use core::ffi::c_void;
+use core::mem::MaybeUninit;
 use core::marker::PhantomData;
 use core::ptr::{self, NonNull};
 use core::sync::atomic::{AtomicPtr, Ordering::*};
+
+use crate::shim::{freertos_rs_enter_critical, freertos_rs_exit_critical};
 
 pub trait PtrType {
   type Type;
@@ -13,8 +17,13 @@ impl<T> PtrType for *mut T {
 
 pub trait LazyInit<P: PtrType = *mut c_void> {
   type Ptr = NonNull<P::Type>;
+  type Data = ();
 
-  fn init() -> NonNull<P::Type>;
+  fn init(data: &UnsafeCell<MaybeUninit<Self::Data>>) -> NonNull<P::Type>;
+
+  fn cancel_init_supported() -> bool {
+    true
+  }
 
   fn cancel_init(ptr: NonNull<P::Type>) {
     Self::destroy(ptr);
@@ -25,26 +34,27 @@ pub trait LazyInit<P: PtrType = *mut c_void> {
 
 pub struct LazyPtr<T, P>
 where
-  P: PtrType,
   T: LazyInit<P>,
+  P: PtrType,
 {
   ptr: AtomicPtr<P::Type>,
+  data: UnsafeCell<MaybeUninit<<T as LazyInit<P>>::Data>>,
   _type: PhantomData<T>,
 }
 
 impl<T, P> LazyPtr<T, P>
 where
-  P: PtrType,
   T: LazyInit<P>,
+  P: PtrType,
 {
   #[inline]
   pub const fn new() -> Self {
-    Self { ptr: AtomicPtr::new(ptr::null_mut()), _type: PhantomData }
+    unsafe { Self::new_unchecked(ptr::null_mut()) }
   }
 
   #[inline]
   pub const unsafe fn new_unchecked(ptr: *mut P::Type) -> Self {
-    Self { ptr: AtomicPtr::new(ptr), _type: PhantomData }
+    Self { ptr: AtomicPtr::new(ptr), data: UnsafeCell::new(MaybeUninit::uninit()), _type: PhantomData }
   }
 
   #[inline]
@@ -59,7 +69,21 @@ where
 
   #[cold]
   fn initialize(&self) -> *mut P::Type {
-    let new_ptr = T::init();
+    // If initialization cannot be cancelled, do it inside of a critical section
+    // so that initialization and storing the pointer is done atomically.
+    if !T::cancel_init_supported() {
+      unsafe { freertos_rs_enter_critical() };
+      let mut ptr = self.ptr.load(Acquire);
+      if ptr.is_null() {
+        ptr = T::init(&self.data).as_ptr();
+        self.ptr.store(ptr, Release);
+      }
+
+      unsafe { freertos_rs_exit_critical() };
+      return ptr
+    }
+
+    let new_ptr = T::init(&self.data);
     match self.ptr.compare_exchange(ptr::null_mut(), new_ptr.as_ptr(), AcqRel, Acquire) {
       Ok(_) => new_ptr.as_ptr(),
       Err(ptr) => {

@@ -1,6 +1,6 @@
 use core::{fmt, ffi::{c_ulong, c_ushort}};
 
-use alloc::{
+use alloc2::{
   string::ToString,
   vec::Vec,
 };

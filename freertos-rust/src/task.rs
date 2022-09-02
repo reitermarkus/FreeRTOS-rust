@@ -5,7 +5,7 @@ use core::{
 };
 
 #[cfg(feature = "alloc")]
-use alloc::{
+use alloc2::{
   boxed::Box,
   vec::Vec,
 };

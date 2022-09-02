@@ -1,6 +1,6 @@
 use core::time::Duration;
 
-use alloc::{
+use alloc2::{
   sync::{Arc, Weak},
   vec::Vec,
 };

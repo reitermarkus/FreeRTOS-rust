@@ -1,4 +1,4 @@
-use alloc::{
+use alloc2::{
   sync::Arc,
   vec::Vec,
 };

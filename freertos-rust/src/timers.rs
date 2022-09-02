@@ -1,7 +1,7 @@
 use core::mem;
 use core::ptr::NonNull;
 
-use alloc::{
+use alloc2::{
   ffi::CString,
   boxed::Box,
   string::String,
