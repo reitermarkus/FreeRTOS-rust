@@ -1,4 +1,4 @@
-use crate::FreeRtosError;
+use crate::{FreeRtosError, CurrentTask};
 
 use super::{Task, TaskPriority};
 
@@ -42,7 +42,7 @@ impl TaskBuilder<'_> {
   /// Start a new task.
   pub fn start<F>(&self, func: F) -> Result<Task, FreeRtosError>
   where
-    F: FnOnce(Task) -> () + Send + 'static,
+    F: FnOnce(&mut CurrentTask) -> () + Send + 'static,
   {
     Task::spawn(
       self.task_name,

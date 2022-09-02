@@ -76,7 +76,7 @@ impl Task {
       f: F,
     ) -> Result<Task, FreeRtosError>
     where
-        F: FnOnce(Task) + Send + 'static,
+        F: FnOnce(&mut CurrentTask) + Send + 'static,
     {
         unsafe {
             Task::spawn_inner(Box::new(f), name, stack_size, priority)
@@ -84,23 +84,18 @@ impl Task {
     }
 
     unsafe fn spawn_inner<'a>(
-        f: Box<dyn FnOnce(Task)>,
+        f: Box<dyn FnOnce(&mut CurrentTask)>,
         name: &str,
         stack_size: u16,
         priority: TaskPriority,
     ) -> Result<Task, FreeRtosError> {
-        type TaskFunction = Box<dyn FnOnce(Task)>;
-
         extern "C" fn task_function(param: *mut c_void) {
             unsafe {
                 // NOTE: New scope so that everything is dropped before the task is deleted.
                 {
-                    let b: Box<TaskFunction> = Box::from_raw(param.cast());
-
-                    let task = Task {
-                      handle: NonNull::new_unchecked(xTaskGetCurrentTaskHandle()),
-                    };
-                    b(task);
+                    let mut current_task = CurrentTask;
+                    let b = Box::from_raw(param as *mut Box<dyn FnOnce(&mut CurrentTask)>);
+                    b(&mut current_task);
                 }
 
                 vTaskDelete(ptr::null_mut());
