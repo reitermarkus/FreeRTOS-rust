@@ -18,11 +18,10 @@ pub struct Binary {}
 #[non_exhaustive]
 pub struct Counting<const MAX: u32, const INITIAL: u32> {}
 
-
 /// A counting or binary semaphore.
 pub struct Semaphore<T, S = Dynamic>
 where
-  (T, S): SemaphoreImpl,
+  (T, S): LazyInit<SemaphoreHandle_t>,
 {
     handle: LazyPtr<(T, S), SemaphoreHandle_t>,
     _alloc_type: PhantomData<S>,
@@ -66,7 +65,7 @@ macro_rules! impl_inner {
       /// Lock this semaphore in RAII fashion.
       pub fn lock(self: $self_ty, timeout: impl Into<Ticks>) -> Result<SemaphoreGuard<'_>, FreeRtosError> {
         let handle = unsafe { self.handle() };
-        handle.take(timeout)?;
+        unsafe { handle.take(timeout)? };
         Ok(SemaphoreGuard { handle })
       }
     };
@@ -82,7 +81,7 @@ macro_rules! impl_semaphore {
     ) => {
       impl<$(const $max: $max_ty, const $initial: $initial_ty,)* A> Semaphore<$semaphore$(<$max, $initial>)*, A>
       where
-        ($semaphore$(<$max, $initial>)*, A): SemaphoreImpl,
+        ($semaphore$(<$max, $initial>)*, A): LazyInit<SemaphoreHandle_t>,
       {
         #[doc = concat!("Create a new ", stringify!($variant_name), " semaphore.")]
         pub const fn $new_fn() -> Self {
@@ -153,21 +152,19 @@ impl_semaphore!(
 
 unsafe impl<T: Send, A: Send> Send for Semaphore<T, A>
 where
-  (T, A): SemaphoreImpl,
+  (T, A): LazyInit<SemaphoreHandle_t>,
 {}
 unsafe impl<T: Send, A> Sync for Semaphore<T, A>
 where
-  (T, A): SemaphoreImpl,
+  (T, A): LazyInit<SemaphoreHandle_t>,
 {}
 
-pub trait SemaphoreImpl: LazyInit<SemaphoreHandle_t> {}
-
-impl<T, A> SemaphoreImpl for (T, A)
-where
-  (T, A): LazyInit<SemaphoreHandle_t>
-{}
-
-/// Holds the lock to the semaphore until we are dropped
+/// An RAII implementation of a “scoped decrement” of a semaphore.
+///
+/// When this structure is dropped (falls out of scope), the semaphore is incremented again.
+#[must_use = concat!("if unused the `Semaphore` will increment again immediately")]
+// #[must_not_suspend = "holding a `Semaphore` across suspend points can cause deadlocks, delays, \
+//                       and cause Futures to not implement `Send`"]
 #[derive(Debug)]
 #[must_use = ""]
 pub struct SemaphoreGuard<'s> {
@@ -176,6 +173,6 @@ pub struct SemaphoreGuard<'s> {
 
 impl Drop for SemaphoreGuard<'_> {
   fn drop(&mut self) {
-    let _ = self.handle.give();
+    let _ = unsafe { self.handle.give() };
   }
 }

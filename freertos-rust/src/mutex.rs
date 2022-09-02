@@ -6,6 +6,7 @@ use core::ops::{Deref, DerefMut};
 use core::time::Duration;
 use core::pin::Pin;
 
+use crate::ffi::SemaphoreHandle;
 use crate::alloc::{Dynamic, Static};
 use crate::error::FreeRtosError;
 use crate::lazy_init::{LazyInit, LazyPtr};
@@ -27,6 +28,32 @@ macro_rules! guard_impl_deref_mut {
 macro_rules! guard_deref_mut_doc {
   (MutexGuard) => { " and [`DerefMut`]" };
   ($guard:ident) => { "" };
+}
+
+macro_rules! impl_inner {
+  ($take:ident, $guard:ident, $self_ty:ty $(, $get_ref:ident)?) => {
+    /// Lock the pinned mutex.
+    #[inline]
+    pub fn lock(self: $self_ty) -> Result<$guard<'_, T>, FreeRtosError> {
+      self.timed_lock(Duration::MAX)
+    }
+
+    /// Try locking the pinned mutex and return immediately.
+    #[inline]
+    pub fn try_lock(self: $self_ty) -> Result<$guard<'_, T>, FreeRtosError> {
+      self.timed_lock(Duration::ZERO)
+    }
+
+    /// Try locking the pinned mutex until the given `timeout`.
+    pub fn timed_lock(self: $self_ty, timeout: impl Into<Ticks>) -> Result<$guard<'_, T>, FreeRtosError> {
+      let this = self$(.$get_ref())*;
+
+      let handle = unsafe { SemaphoreHandle::from_ptr(this.handle.as_ptr()) };
+      unsafe { handle.$take(timeout)? };
+
+      Ok($guard { handle, data: &this.data })
+    }
+  };
 }
 
 macro_rules! impl_mutex {
@@ -66,7 +93,7 @@ macro_rules! impl_mutex {
     }
 
     impl LazyInit<SemaphoreHandle_t> for ($mutex<()>, Static) {
-      type Data = StaticQueue_t;
+      type Data = StaticSemaphore_t;
 
       fn init(data: &UnsafeCell<MaybeUninit<Self::Data>>) -> Self::Ptr {
         unsafe {
@@ -121,58 +148,11 @@ macro_rules! impl_mutex {
     }
 
     impl<T: ?Sized> $mutex<T, Dynamic> {
-      /// Lock the mutex.
-      #[inline]
-      pub fn lock(&self) -> Result<$guard<'_, T>, FreeRtosError> {
-        self.timed_lock(Duration::MAX)
-      }
-
-      /// Try locking the mutex and return immediately.
-      #[inline]
-      pub fn try_lock(&self) -> Result<$guard<'_, T>, FreeRtosError> {
-        self.timed_lock(Duration::ZERO)
-      }
-
-      /// Try locking the mutex until the given `timeout`.
-      pub fn timed_lock(&self, timeout: impl Into<Ticks>) -> Result<$guard<'_, T>, FreeRtosError> {
-        let timeout = timeout.into();
-
-        let res = unsafe {
-          $take(self.handle.as_ptr(), timeout.as_ticks())
-        };
-
-        if res == pdTRUE {
-          return Ok($guard { handle: self.handle.as_ptr(), data: &self.data })
-        }
-
-        Err(FreeRtosError::Timeout)
-      }
+      impl_inner!($take, $guard, &Self);
     }
 
     impl<T: ?Sized> $mutex<T, Static> {
-      /// Lock the pinned mutex.
-      #[inline]
-      pub fn lock(self: Pin<&Self>) -> Result<$guard<'_, T>, FreeRtosError> {
-        self.timed_lock(Duration::MAX)
-      }
-
-      /// Try locking the pinned mutex and return immediately.
-      #[inline]
-      pub fn try_lock(self: Pin<&Self>) -> Result<$guard<'_, T>, FreeRtosError> {
-        self.timed_lock(Duration::ZERO)
-      }
-
-      /// Try locking the pinned mutex until the given `timeout`.
-      pub fn timed_lock<'p>(self: Pin<&'p Self>, timeout: impl Into<Ticks>) -> Result<$guard<'p, T>, FreeRtosError> {
-        let timeout = timeout.into();
-
-        let this = self.get_ref();
-        let handle = this.handle.as_ptr();
-        match unsafe { $take(handle, timeout.as_ticks()) } {
-          pdTRUE => Ok($guard { handle, data: &this.data }),
-          _ => Err(FreeRtosError::Timeout),
-        }
-      }
+      impl_inner!($take, $guard, Pin<&Self>, get_ref);
     }
 
     impl<T: ?Sized + fmt::Debug> fmt::Debug for $mutex<T> {
@@ -203,7 +183,7 @@ macro_rules! impl_mutex {
     //                       and cause Futures to not implement `Send`"]
     #[clippy::has_significant_drop]
     pub struct $guard<'m, T: ?Sized> {
-      handle: SemaphoreHandle_t,
+      handle: &'m SemaphoreHandle,
       data: &'m UnsafeCell<T>,
     }
 
@@ -225,7 +205,7 @@ macro_rules! impl_mutex {
       /// Unlocks the mutex.
       #[inline]
       fn drop(&mut self) {
-        unsafe { $give(self.handle); }
+        let _ = unsafe { self.handle.$give() };
       }
     }
   };
@@ -237,8 +217,8 @@ impl_mutex!(
   MutexGuard,
   xSemaphoreCreateMutex,
   xSemaphoreCreateMutexStatic,
-  xSemaphoreTake,
-  xSemaphoreGive,
+  take,
+  give,
   "",
 );
 
@@ -251,7 +231,7 @@ impl_mutex!(
   RecursiveMutexGuard,
   xSemaphoreCreateRecursiveMutex,
   xSemaphoreCreateRecursiveMutexStatic,
-  xSemaphoreTakeRecursive,
-  xSemaphoreGiveRecursive,
+  take_recursive,
+  give_recursive,
   "recursive",
 );
