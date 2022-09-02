@@ -61,6 +61,7 @@
 #![feature(const_trait_impl)]
 #![feature(const_pin)]
 #![feature(associated_type_defaults)]
+#![feature(const_mut_refs)]
 
 #[cfg_attr(any(feature = "time", feature = "sync"), macro_use)]
 extern crate alloc as alloc2;
@@ -68,6 +69,7 @@ extern crate alloc as alloc2;
 pub mod assert;
 mod error;
 mod shim;
+pub mod ffi;
 
 #[cfg(feature = "alloc")]
 mod allocator;

@@ -1,54 +1,25 @@
 use core::cell::UnsafeCell;
 use core::marker::PhantomData;
 use core::mem::MaybeUninit;
-use core::ops::Deref;
 use core::pin::Pin;
 
 use crate::alloc::{Dynamic, Static};
-use crate::lazy_init::{LazyPtr, LazyInit, PtrType};
+use crate::ffi::SemaphoreHandle;
+use crate::lazy_init::{LazyPtr, LazyInit};
 use crate::{error::*, InterruptContext};
 use crate::shim::*;
 use crate::ticks::*;
 
-pub type StaticSemaphore = StaticSemaphore_t;
-
+/// Marker type for a binary semaphore.
 #[non_exhaustive]
 pub struct Binary {}
 
+/// Marker type for a counting semaphore.
 #[non_exhaustive]
-pub enum Counting<const MAX: u32, const INITIAL: u32> {}
+pub struct Counting<const MAX: u32, const INITIAL: u32> {}
 
-#[derive(Debug)]
-#[repr(transparent)]
-pub struct SemaphoreHandle(<SemaphoreHandle_t as PtrType>::Type);
 
-impl SemaphoreHandle {
-  /// # Safety
-  ///
-  /// - `ptr` must point to a valid semaphore.
-  /// - The semaphore must not be deleted for the lifetime `'a` of the returned `SemaphoreHandle`.
-  pub unsafe fn from_ptr<'a>(ptr: SemaphoreHandle_t) -> &'a Self {
-    &*ptr.cast::<Self>()
-  }
-
-  pub const fn as_ptr(&self) -> SemaphoreHandle_t {
-    self as *const _ as SemaphoreHandle_t
-  }
-}
-
-impl<T, S> Deref for Semaphore<T, S>
-where
-  (T, S): SemaphoreImpl,
-{
-  type Target = SemaphoreHandle;
-
-  fn deref(&self) -> &Self::Target {
-    // SAFETY: Self is an active semaphore which has not been deleted.
-    unsafe { SemaphoreHandle::from_ptr(self.handle.as_ptr()) }
-  }
-}
-
-/// A counting or binary semaphore
+/// A counting or binary semaphore.
 pub struct Semaphore<T, S = Dynamic>
 where
   (T, S): SemaphoreImpl,
@@ -57,71 +28,128 @@ where
     _alloc_type: PhantomData<S>,
 }
 
-impl LazyInit<SemaphoreHandle_t> for (Binary, Dynamic) {
-  fn init(_data: &UnsafeCell<MaybeUninit<()>>) -> Self::Ptr {
-    let ptr = unsafe { xSemaphoreCreateBinary() };
-    assert!(!ptr.is_null());
-    unsafe { Self::Ptr::new_unchecked(ptr) }
-  }
+macro_rules! impl_inner {
+    ($self_ty:ty $(, $get_ref:ident)?) => {
+      /// Get the raw semaphore handle.
+      pub fn as_ptr(&self) -> SemaphoreHandle_t {
+        self.handle.as_ptr()
+      }
 
-  fn destroy(ptr: Self::Ptr) {
-    unsafe { vSemaphoreDelete(ptr.as_ptr()) }
-  }
+      unsafe fn handle(self: $self_ty) -> &'_ SemaphoreHandle {
+        SemaphoreHandle::from_ptr(self$(.$get_ref())*.as_ptr())
+      }
+
+      /// Increment the semaphore.
+      #[inline]
+      pub fn give(self: $self_ty) -> Result<(), FreeRtosError> {
+        unsafe { self.handle().give() }
+      }
+
+      /// Increment the semaphore from within an interrupt service routine.
+      #[inline]
+      pub fn give_from_isr(self: $self_ty, ic: &mut InterruptContext) -> Result<(), FreeRtosError> {
+        unsafe { self.handle().give_from_isr(ic) }
+      }
+
+      /// Decrement the semaphore.
+      #[inline]
+      pub fn take(self: $self_ty, timeout: impl Into<Ticks>) -> Result<(), FreeRtosError> {
+        unsafe { self.handle().take(timeout) }
+      }
+
+      /// Decrement the semaphore from within an interrupt service routine.
+      #[inline]
+      pub fn take_from_isr(self: $self_ty, ic: &mut InterruptContext) -> Result<(), FreeRtosError> {
+        unsafe { self.handle().take_from_isr(ic) }
+      }
+
+      /// Lock this semaphore in RAII fashion.
+      pub fn lock(self: $self_ty, timeout: impl Into<Ticks>) -> Result<SemaphoreGuard<'_>, FreeRtosError> {
+        let handle = unsafe { self.handle() };
+        handle.take(timeout)?;
+        Ok(SemaphoreGuard { handle })
+      }
+    };
 }
 
-impl LazyInit<SemaphoreHandle_t> for (Binary, Static) {
-  type Data = StaticSemaphore;
+macro_rules! impl_semaphore {
+    (
+      $semaphore:ident $(<const $max:ident: $max_ty:ident, const $initial:ident: $initial_ty:ident>)?,
+      $create:ident,
+      $create_static:ident,
+      $new_fn:ident,
+      $variant_name:ident,
+    ) => {
+      impl<$(const $max: $max_ty, const $initial: $initial_ty,)* A> Semaphore<$semaphore$(<$max, $initial>)*, A>
+      where
+        ($semaphore$(<$max, $initial>)*, A): SemaphoreImpl,
+      {
+        #[doc = concat!("Create a new ", stringify!($variant_name), " semaphore.")]
+        pub const fn $new_fn() -> Self {
+          $(assert!($initial <= $max);)*
 
-  fn init(data: &UnsafeCell<MaybeUninit<Self::Data>>) -> Self::Ptr {
-    unsafe {
-      let data = &mut *data.get();
-      let ptr = xSemaphoreCreateBinaryStatic(data.as_mut_ptr());
-      assert!(!ptr.is_null());
-      Self::Ptr::new_unchecked(ptr)
-    }
-  }
+          Self { handle: LazyPtr::new(), _alloc_type: PhantomData }
+        }
+      }
 
-  fn cancel_init_supported() -> bool {
-    false
-  }
+      impl$(<const $max: $max_ty, const $initial: $initial_ty>)* Semaphore<$semaphore$(<$max, $initial>)*, Dynamic> {
+        impl_inner!(&Self);
+      }
 
-  fn destroy(ptr: Self::Ptr) {
-    drop(ptr)
-  }
+      impl$(<const $max: $max_ty, const $initial: $initial_ty>)* Semaphore<$semaphore$(<$max, $initial>)*, Static> {
+        impl_inner!(Pin<&Self>, get_ref);
+      }
+
+      impl$(<const $max: $max_ty, const $initial: $initial_ty>)* LazyInit<SemaphoreHandle_t> for ($semaphore$(<$max, $initial>)*, Dynamic) {
+        fn init(_data: &UnsafeCell<MaybeUninit<()>>) -> Self::Ptr {
+          let ptr = unsafe { $create($($max, $initial)*) };
+          assert!(!ptr.is_null());
+          unsafe { Self::Ptr::new_unchecked(ptr) }
+        }
+
+        fn destroy(ptr: Self::Ptr) {
+          unsafe { vSemaphoreDelete(ptr.as_ptr()) }
+        }
+      }
+
+      impl$(<const $max: $max_ty, const $initial: $initial_ty>)* LazyInit<SemaphoreHandle_t> for ($semaphore$(<$max, $initial>)*, Static) {
+        type Data = StaticSemaphore_t;
+
+        fn init(data: &UnsafeCell<MaybeUninit<Self::Data>>) -> Self::Ptr {
+          unsafe {
+            let data = &mut *data.get();
+            let ptr = $create_static($($max, $initial,)* data.as_mut_ptr());
+            assert!(!ptr.is_null());
+            Self::Ptr::new_unchecked(ptr)
+          }
+        }
+
+        fn cancel_init_supported() -> bool {
+          false
+        }
+
+        fn destroy(ptr: Self::Ptr) {
+          drop(ptr)
+        }
+      }
+    };
 }
 
-impl<const MAX: u32, const INITIAL: u32> LazyInit<SemaphoreHandle_t> for (Counting<MAX, INITIAL>, Dynamic) {
-  fn init(_data: &UnsafeCell<MaybeUninit<()>>) -> Self::Ptr {
-    let ptr = unsafe { xSemaphoreCreateCounting(MAX, INITIAL) };
-    assert!(!ptr.is_null());
-    unsafe { Self::Ptr::new_unchecked(ptr) }
-  }
+impl_semaphore!(
+  Binary,
+  xSemaphoreCreateBinary,
+  xSemaphoreCreateBinaryStatic,
+  new_binary,
+  binary,
+);
 
-  fn destroy(ptr: Self::Ptr) {
-    unsafe { vSemaphoreDelete(ptr.as_ptr()) }
-  }
-}
-
-impl<const MAX: u32, const INITIAL: u32> LazyInit<SemaphoreHandle_t> for (Counting<MAX, INITIAL>, Static) {
-  type Data = StaticSemaphore;
-
-  fn init(data: &UnsafeCell<MaybeUninit<Self::Data>>) -> Self::Ptr {
-    unsafe {
-      let data = &mut *data.get();
-      let ptr = xSemaphoreCreateCountingStatic(MAX, INITIAL, data.as_mut_ptr());
-      assert!(!ptr.is_null());
-      Self::Ptr::new_unchecked(ptr)
-    }
-  }
-
-  fn cancel_init_supported() -> bool {
-    false
-  }
-
-  fn destroy(ptr: Self::Ptr) {
-    drop(ptr)
-  }
-}
+impl_semaphore!(
+  Counting<const MAX: u32, const INITIAL: u32>,
+  xSemaphoreCreateCounting,
+  xSemaphoreCreateCountingStatic,
+  new_counting,
+  counting,
+);
 
 unsafe impl<T: Send, A: Send> Send for Semaphore<T, A>
 where
@@ -132,77 +160,12 @@ where
   (T, A): SemaphoreImpl,
 {}
 
-impl<A> Semaphore<Binary, A>
-where
-  (Binary, A): SemaphoreImpl,
-{
-  /// Create a new binary semaphore.
-  pub const fn new_binary() -> Self {
-    Self { handle: LazyPtr::new(), _alloc_type: PhantomData }
-  }
-}
-
-impl<const MAX: u32, const INITIAL: u32, A> Semaphore<Counting<MAX, INITIAL>, A>
-where
-  (Counting<MAX, INITIAL>, A): SemaphoreImpl,
-{
-  /// Create a new counting semaphore.
-  pub const fn new_counting() -> Self {
-    assert!(INITIAL <= MAX);
-
-    Self { handle: LazyPtr::new(), _alloc_type: PhantomData }
-  }
-}
-
 pub trait SemaphoreImpl: LazyInit<SemaphoreHandle_t> {}
 
 impl<T, A> SemaphoreImpl for (T, A)
 where
   (T, A): LazyInit<SemaphoreHandle_t>
 {}
-impl SemaphoreHandle {
-  #[inline]
-  pub fn give(&self) -> Result<(), FreeRtosError> {
-    match unsafe { xSemaphoreGive(self.as_ptr()) } {
-      pdTRUE => Ok(()),
-      errQUEUE_FULL => Err(FreeRtosError::QueueFull),
-      _ => unreachable!(),
-    }
-  }
-
-  #[inline]
-  pub fn give_from_isr(&self, ic: &mut InterruptContext) -> Result<(), FreeRtosError> {
-    match unsafe { xSemaphoreGiveFromISR(self.as_ptr(), ic.as_ptr()) } {
-      pdTRUE => Ok(()),
-      errQUEUE_FULL => Err(FreeRtosError::QueueFull),
-      _ => unreachable!(),
-    }
-  }
-
-  #[inline]
-  pub fn take(&self, timeout: impl Into<Ticks>) -> Result<(), FreeRtosError> {
-    match unsafe { xSemaphoreTake(self.as_ptr(), timeout.into().as_ticks()) } {
-      pdTRUE => Ok(()),
-      pdFALSE => Err(FreeRtosError::Timeout),
-      _ => unreachable!(),
-    }
-  }
-
-  pub fn take_from_isr(&self, ic: &mut InterruptContext) -> Result<(), FreeRtosError> {
-    match unsafe { xSemaphoreTakeFromISR(self.as_ptr(), ic.as_ptr()) } {
-      pdTRUE => Ok(()),
-      pdFALSE => Err(FreeRtosError::Unavailable),
-      _ => unreachable!(),
-    }
-  }
-
-  /// Lock this semaphore in RAII fashion.
-  pub fn lock(&self, timeout: impl Into<Ticks>) -> Result<SemaphoreGuard<'_>, FreeRtosError> {
-      self.take(timeout)?;
-
-      Ok(SemaphoreGuard { handle: self })
-  }
-}
 
 /// Holds the lock to the semaphore until we are dropped
 #[derive(Debug)]
