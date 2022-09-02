@@ -7,7 +7,7 @@ use std::path::PathBuf;
 use std::process::exit;
 use std::sync::{Mutex, Arc};
 
-use bindgen::callbacks::{ParseCallbacks, IntKind};
+use bindgen::{CargoCallbacks, callbacks::{ParseCallbacks, IntKind}};
 
 mod constants;
 
@@ -567,6 +567,7 @@ fn main() {
     .clang_arg(format!("-DRUST"))
     .header(shim_dir.join("shim.c").display().to_string())
     .header(constants.display().to_string())
+    .parse_callbacks(Box::new(CargoCallbacks))
     .parse_callbacks(Box::new(Callbacks {
       function_macros: function_macros.clone(),
     }))
