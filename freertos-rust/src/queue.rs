@@ -3,6 +3,7 @@ use core::marker::PhantomData;
 use core::mem::{MaybeUninit, size_of, self};
 use core::ptr::{self, NonNull};
 
+use crate::lazy_init::PtrType;
 use crate::error::*;
 use crate::isr::*;
 use crate::shim::*;
@@ -89,7 +90,7 @@ macro_rules! impl_receive {
 /// copied.
 #[derive(Debug)]
 pub struct Queue<T> {
-    handle: NonNull<QueueDefinition>,
+    handle: NonNull<<QueueHandle_t as PtrType>::Type>,
     item_type: PhantomData<T>,
 }
 
@@ -173,7 +174,7 @@ impl<T> Drop for Queue<T> {
 
 /// A sender for a queue.
 pub struct Sender<T: Sized + Send + Copy> {
-  handle: NonNull<QueueDefinition>,
+  handle: NonNull<<QueueHandle_t as PtrType>::Type>,
   item_type: PhantomData<T>,
 }
 
@@ -183,7 +184,7 @@ impl<T: Sized + Send + Copy> Sender<T> {
 
 /// A receiver for a queue.
 pub struct Receiver<T> {
-  handle: NonNull<QueueDefinition>,
+  handle: NonNull<<QueueHandle_t as PtrType>::Type>,
   item_type: PhantomData<T>,
 }
 

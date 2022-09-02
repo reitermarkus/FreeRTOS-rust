@@ -261,15 +261,20 @@ fn variable_type(macro_name: &str, variable_name: &str) -> Option<&'static str> 
     "uxQueueLength" | "uxItemSize" | "uxMaxCount" | "uxInitialCount" |
     "uxTopPriority" | "uxPriority" | "uxReadyPriorities" |
     "uxIndexToNotify" | "uxIndexToWaitOn" | "uxIndexToClear" => "UBaseType_t",
-    "pvItemToQueue" => "*const ::core::ffi::c_void",
+    "pvItemToQueue" | "pvParameters" => "*const ::core::ffi::c_void",
+    "pvBlockToFree" => "*mut ::core::ffi::c_void",
+    "pcName" => "*const ::core::ffi::c_char",
     "xMutex" | "xQueue" => "QueueHandle_t",
     "xSemaphore" => "SemaphoreHandle_t",
     "xBlockTime" | "xTicksToWait" | "xNewPeriod" | "xExpectedIdleTime" | "xTimeIncrement" => "TickType_t",
     "xTask" | "xTaskToNotify" => "TaskHandle_t",
+    "pxCreatedTask" => "*mut TaskHandle_t",
+    "pvTaskCode" => "TaskFunction_t",
     "xTimer" => "TimerHandle_t",
     "eAction" => "eNotifyAction",
     "ulValue" | "ulSecureStackSize" | "ulBitsToClearOnEntry" |
     "ulBitsToClearOnExit" | "ulBitsToClear" => "u32",
+    "usStackDepth" => "u16",
     "pulPreviousNotificationValue" | "pulPreviousNotifyValue" | "pulNotificationValue" => "*mut u32",
     "pvTaskToDelete" | "pvBuffer" => "*mut ::core::ffi::c_void",
     "pucQueueStorage" => "*mut u8",
@@ -278,6 +283,7 @@ fn variable_type(macro_name: &str, variable_name: &str) -> Option<&'static str> 
     "x" if macro_name.ends_with("_CRITICAL_FROM_ISR") => "UBaseType_t",
     "x" if macro_name.ends_with("CLEAR_INTERRUPT_MASK_FROM_ISR") => "UBaseType_t",
     "x" if macro_name.ends_with("YIELD_FROM_ISR") => "BaseType_t",
+    "x" if macro_name == "xTaskCreateRestricted" => "TaskParameters_t",
     "xClearCountOnExit" => "BaseType_t",
     _ => return None,
   })

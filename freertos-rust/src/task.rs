@@ -14,6 +14,7 @@ use crate::error::*;
 use crate::isr::*;
 use crate::shim::*;
 use crate::ticks::*;
+use crate::lazy_init::PtrType;
 
 mod builder;
 pub use builder::TaskBuilder;
@@ -37,7 +38,7 @@ pub use system_state::{SystemState, TaskStatus};
 /// Handle for a FreeRTOS task
 #[derive(Debug, Clone)]
 pub struct Task {
-    handle: NonNull<tskTaskControlBlock>,
+    handle: NonNull<<TaskHandle_t as PtrType>::Type>,
 }
 
 unsafe impl Send for Task {}

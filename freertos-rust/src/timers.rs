@@ -12,6 +12,7 @@ use crate::InterruptContext;
 use crate::shim::*;
 use crate::ticks::*;
 use crate::Task;
+use crate::lazy_init::PtrType;
 
 unsafe impl Send for Timer {}
 unsafe impl Sync for Timer {}
@@ -22,7 +23,7 @@ unsafe impl Sync for Timer {}
 /// that receives messages in a queue. Every operation has an associated waiting time
 /// for that queue to get unblocked.
 pub struct Timer {
-    handle: NonNull<tmrTimerControl>,
+    handle: NonNull<<TimerHandle_t as PtrType>::Type>,
     detached: bool,
 }
 
