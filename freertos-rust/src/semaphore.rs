@@ -166,7 +166,6 @@ where
 // #[must_not_suspend = "holding a `Semaphore` across suspend points can cause deadlocks, delays, \
 //                       and cause Futures to not implement `Send`"]
 #[derive(Debug)]
-#[must_use = ""]
 pub struct SemaphoreGuard<'s> {
   handle: &'s SemaphoreHandle,
 }

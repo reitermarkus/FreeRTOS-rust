@@ -10,9 +10,9 @@ use crate::mutex::*;
 use crate::queue::*;
 use crate::ticks::*;
 
-pub type SharedClientWithReplyQueue<O> = Arc<ClientWithReplyQueue<O>>;
-pub type Client<I> = ProcessorClient<I, ()>;
-pub type ClientWithReplies<I, O> = ProcessorClient<I, SharedClientWithReplyQueue<O>>;
+pub type SharedClientWithReplyQueue<O, const SIZE: usize> = Arc<ClientWithReplyQueue<O, SIZE>>;
+pub type Client<I, const SIZE: usize> = ProcessorClient<I, (), SIZE>;
+pub type ClientWithReplies<I, O, const SIZE: usize> = ProcessorClient<I, SharedClientWithReplyQueue<O, SIZE>, SIZE>;
 
 pub trait ReplyableMessage {
     fn reply_to_client_id(&self) -> Option<usize>;
@@ -59,34 +59,34 @@ where
     }
 }
 
-pub struct Processor<I, O>
+pub struct Processor<I, O, const SIZE: usize>
 where
     I: ReplyableMessage + Send + Copy,
     O: Send + Copy,
 {
-    queue: Arc<Queue<I>>,
-    inner: Arc<Mutex<ProcessorInner<O>>>,
+    queue: Arc<Queue<I, SIZE>>,
+    inner: Arc<Mutex<ProcessorInner<O, SIZE>>>,
 }
 
-impl<I, O> Processor<I, O>
+impl<I, O, const SIZE: usize> Processor<I, O, SIZE>
 where
     I: ReplyableMessage + Send + Copy,
     O: Send + Copy,
 {
-    pub fn new(queue_size: usize) -> Result<Self, FreeRtosError> {
+    pub fn new() -> Result<Self, FreeRtosError> {
         let p = ProcessorInner {
             clients: Vec::new(),
             next_client_id: 1,
         };
         let p = Arc::new(Mutex::new(p));
         let p = Processor {
-            queue: Arc::new(Queue::new(queue_size)?),
+            queue: Arc::new(Queue::new()),
             inner: p,
         };
         Ok(p)
     }
 
-    pub fn new_client(&self) -> Result<Client<I>, FreeRtosError> {
+    pub fn new_client(&self) -> Result<Client<I, SIZE>, FreeRtosError> {
         let c = ProcessorClient {
             processor_queue: Arc::downgrade(&self.queue),
             client_reply: (),
@@ -97,10 +97,10 @@ where
 
     pub fn new_client_with_reply(
         &self,
-        client_receive_queue_size: usize,
         timeout: impl Into<Ticks>,
-    ) -> Result<ProcessorClient<I, SharedClientWithReplyQueue<O>>, FreeRtosError> {
-        if client_receive_queue_size == 0 {
+    ) -> Result<ProcessorClient<I, SharedClientWithReplyQueue<O, SIZE>, SIZE>, FreeRtosError> {
+        // TODO: Static assertion.
+        if SIZE == 0 {
             return Err(FreeRtosError::InvalidQueueSize);
         }
 
@@ -110,7 +110,7 @@ where
             let c = ClientWithReplyQueue {
                 id: processor.next_client_id,
                 processor_inner: self.inner.clone(),
-                receive_queue: Queue::new(client_receive_queue_size)?,
+                receive_queue: Queue::new(),
             };
 
             let c = Arc::new(c);
@@ -129,7 +129,7 @@ where
         Ok(c)
     }
 
-    pub fn get_receive_queue(&self) -> &Queue<I> {
+    pub fn get_receive_queue(&self) -> &Queue<I, SIZE> {
         &*self.queue
     }
 
@@ -158,7 +158,7 @@ where
     }
 }
 
-impl<I, O> Processor<InputMessage<I>, O>
+impl<I, O, const SIZE: usize> Processor<InputMessage<I>, O, SIZE>
 where
     I: Send + Copy,
     O: Send + Copy,
@@ -173,32 +173,32 @@ where
     }
 }
 
-struct ProcessorInner<O>
+struct ProcessorInner<O, const SIZE: usize>
 where
     O: Copy,
 {
-    clients: Vec<(usize, Weak<ClientWithReplyQueue<O>>)>,
+    clients: Vec<(usize, Weak<ClientWithReplyQueue<O, SIZE>>)>,
     next_client_id: usize,
 }
 
-impl<O> ProcessorInner<O>
+impl<O, const SIZE: usize> ProcessorInner<O, SIZE>
 where
     O: Copy,
 {
-    fn remove_client_reply(&mut self, client: &ClientWithReplyQueue<O>) {
+    fn remove_client_reply(&mut self, client: &ClientWithReplyQueue<O, SIZE>) {
         self.clients.retain(|ref x| x.0 != client.id)
     }
 }
 
-pub struct ProcessorClient<I, C>
+pub struct ProcessorClient<I, C, const SIZE: usize>
 where
     I: ReplyableMessage + Send + Copy,
 {
-    processor_queue: Weak<Queue<I>>,
+    processor_queue: Weak<Queue<I, SIZE>>,
     client_reply: C,
 }
 
-impl<I, O> ProcessorClient<I, O>
+impl<I, O, const SIZE: usize> ProcessorClient<I, O, SIZE>
 where
     I: ReplyableMessage + Send + Copy,
 {
@@ -224,7 +224,7 @@ where
     }
 }
 
-impl<I> ProcessorClient<InputMessage<I>, ()>
+impl<I, const SIZE: usize> ProcessorClient<InputMessage<I>, (), SIZE>
 where
     I: Send + Copy,
 {
@@ -241,7 +241,7 @@ where
     }
 }
 
-impl<I, O> ProcessorClient<I, SharedClientWithReplyQueue<O>>
+impl<I, O, const SIZE: usize> ProcessorClient<I, SharedClientWithReplyQueue<O, SIZE>, SIZE>
 where
     I: ReplyableMessage + Send + Copy,
     O: Send + Copy,
@@ -253,12 +253,12 @@ where
         self.client_reply.receive_queue.receive(timeout)
     }
 
-    pub fn get_receive_queue(&self) -> &Queue<O> {
+    pub fn get_receive_queue(&self) -> &Queue<O, SIZE> {
         &self.client_reply.receive_queue
     }
 }
 
-impl<I, O> ProcessorClient<InputMessage<I>, SharedClientWithReplyQueue<O>>
+impl<I, O, const SIZE: usize> ProcessorClient<InputMessage<I>, SharedClientWithReplyQueue<O, SIZE>, SIZE>
 where
     I: Send + Copy,
     O: Send + Copy,
@@ -276,7 +276,7 @@ where
     }
 }
 
-impl<I, C> Clone for ProcessorClient<I, C>
+impl<I, C, const SIZE: usize> Clone for ProcessorClient<I, C, SIZE>
 where
     I: ReplyableMessage + Send + Copy,
     C: Clone,
@@ -289,16 +289,16 @@ where
     }
 }
 
-pub struct ClientWithReplyQueue<O>
+pub struct ClientWithReplyQueue<O, const SIZE: usize>
 where
     O: Copy,
 {
     id: usize,
-    processor_inner: Arc<Mutex<ProcessorInner<O>>>,
-    receive_queue: Queue<O>,
+    processor_inner: Arc<Mutex<ProcessorInner<O, SIZE>>>,
+    receive_queue: Queue<O, SIZE>,
 }
 
-impl<O> Drop for ClientWithReplyQueue<O>
+impl<O, const SIZE: usize> Drop for ClientWithReplyQueue<O, SIZE>
 where
     O: Copy,
 {

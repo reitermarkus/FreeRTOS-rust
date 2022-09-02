@@ -1,130 +1,140 @@
+use core::cell::UnsafeCell;
 use core::ffi::CStr;
 use core::marker::PhantomData;
 use core::mem::{MaybeUninit, size_of, self};
 use core::ptr::{self, NonNull};
 
-use crate::lazy_init::PtrType;
+use crate::alloc::{Dynamic, Static};
+use crate::lazy_init::{PtrType, LazyPtr, LazyInit};
 use crate::error::*;
 use crate::isr::*;
 use crate::shim::*;
 use crate::ticks::*;
 
-pub type StaticQueue = StaticQueue_t;
-
-#[macro_export]
-macro_rules! static_queue {
-    (
-      $T:ty; $size:expr
-    ) => {{
-      const ITEM_SIZE: usize = ::core::mem::size_of::<$T>();
-      const LEN: usize = $size;
-      static mut BUFFER: ::core::mem::MaybeUninit<[$T; LEN]> = ::core::mem::MaybeUninit::uninit();
-      static mut STATIC_QUEUE: ::core::mem::MaybeUninit<$crate::StaticQueue> = ::core::mem::MaybeUninit::uninit();
-      static mut QUEUE: ::core::mem::MaybeUninit::<Queue<$T>> = ::core::mem::MaybeUninit::uninit();
-      unsafe {
-        $crate::Queue::<$T>::new_static(&mut BUFFER, &mut STATIC_QUEUE, &mut QUEUE)
-      }
-    }};
-}
-
 macro_rules! impl_send {
-    () => {
-        /// Send an item to the end of the queue. Wait for the queue to have empty space for it.
-        #[inline]
-        pub fn send(&self, item: T, timeout: impl Into<Ticks>) -> Result<(), FreeRtosError> {
-          let res = unsafe {
-            xQueueSend(self.handle.as_ptr(), ptr::addr_of!(item).cast(), timeout.into().as_ticks())
-          };
+  () => {
+    /// Send an item to the end of the queue. Wait for the queue to have empty space for it.
+    #[inline]
+    pub fn send(&self, item: T, timeout: impl Into<Ticks>) -> Result<(), FreeRtosError> {
+      let res = unsafe {
+        xQueueSend(self.handle.as_ptr(), ptr::addr_of!(item).cast(), timeout.into().as_ticks())
+      };
 
-          if res == pdTRUE {
-            return Ok(())
-          }
+      match res {
+        pdTRUE => Ok(()),
+        errQUEUE_FULL => Err(FreeRtosError::QueueFull),
+        _ => Err(FreeRtosError::Timeout),
+      }
+    }
 
-          match res {
-            pdTRUE => Ok(()),
-            errQUEUE_FULL => Err(FreeRtosError::QueueFull),
-            _ => Err(FreeRtosError::Timeout),
-          }
-        }
+    /// Send an item to the end of the queue, from an interrupt.
+    #[inline]
+    pub fn send_from_isr(
+        &self,
+        ic: &mut InterruptContext,
+        item: T,
+    ) -> Result<(), FreeRtosError> {
+      let res = unsafe {
+        xQueueSendFromISR(self.handle.as_ptr(), ptr::addr_of!(item).cast(), ic.as_ptr())
+      };
 
-        /// Send an item to the end of the queue, from an interrupt.
-        #[inline]
-        pub fn send_from_isr(
-            &self,
-            ic: &mut InterruptContext,
-            item: T,
-        ) -> Result<(), FreeRtosError> {
-          let res = unsafe {
-            xQueueSendFromISR(self.handle.as_ptr(), ptr::addr_of!(item).cast(), ic.as_ptr())
-          };
-
-          match res {
-            pdTRUE => Ok(()),
-            errQUEUE_FULL => Err(FreeRtosError::QueueFull),
-            _ => unreachable!(),
-          }
-        }
-    };
+      match res {
+        pdTRUE => Ok(()),
+        errQUEUE_FULL => Err(FreeRtosError::QueueFull),
+        _ => unreachable!(),
+      }
+    }
+  };
 }
 
 macro_rules! impl_receive {
-    () => {
-        /// Wait for an item to be available on the queue.
-        #[inline]
-        pub fn receive(&self, timeout: impl Into<Ticks>) -> Result<T, FreeRtosError> {
-          let mut item = MaybeUninit::<T>::zeroed();
+  () => {
+    /// Wait for an item to be available on the queue.
+    #[inline]
+    pub fn receive(&self, timeout: impl Into<Ticks>) -> Result<T, FreeRtosError> {
+      let mut item = MaybeUninit::<T>::zeroed();
 
-          let res = unsafe {
-            xQueueReceive(self.handle.as_ptr(), item.as_mut_ptr().cast(), timeout.into().as_ticks())
-          };
+      let res = unsafe {
+        xQueueReceive(self.handle.as_ptr(), item.as_mut_ptr().cast(), timeout.into().as_ticks())
+      };
 
-          match res {
-            pdTRUE => Ok(unsafe { item.assume_init() }),
-            _ => Err(FreeRtosError::Timeout),
-          }
-        }
-    };
+      match res {
+        pdTRUE => Ok(unsafe { item.assume_init() }),
+        _ => Err(FreeRtosError::Timeout),
+      }
+    }
+  };
 }
 
 /// A queue with a finite size. The items are owned by the queue and are
 /// copied.
-#[derive(Debug)]
-pub struct Queue<T> {
-    handle: NonNull<<QueueHandle_t as PtrType>::Type>,
-    item_type: PhantomData<T>,
+pub struct Queue<T, const SIZE: usize, A = Dynamic>
+where
+  Self: LazyInit<QueueHandle_t>,
+{
+  handle: LazyPtr<Self, QueueHandle_t>,
+  item_type: PhantomData<T>,
 }
 
-unsafe impl<T: Send> Send for Queue<T> {}
-unsafe impl<T: Send> Sync for Queue<T> {}
+impl<T, const SIZE: usize> LazyInit<QueueHandle_t> for Queue<T, SIZE, Dynamic> {
+  fn init(_data: &UnsafeCell<MaybeUninit<Self::Data>>) -> Self::Ptr {
+    let handle = unsafe {
+      xQueueCreate(
+        (mem::size_of::<T>() * SIZE) as UBaseType_t,
+        size_of::<T>() as UBaseType_t,
+      )
+    };
+    assert!(!handle.is_null());
+    unsafe { Self::Ptr::new_unchecked(handle) }
+  }
 
-impl<T: Sized + Send + Copy> Queue<T> {
-    pub fn new_static<const LEN: usize>(
-      buffer: &'static mut MaybeUninit<[T; LEN]>,
-      static_queue: &'static mut MaybeUninit<StaticQueue>,
-      queue: &'static mut MaybeUninit<Queue<T>>,
-    ) -> &'static mut Self {
-      unsafe {
-        let handle = xQueueCreateStatic(
-          LEN as u32,
-          size_of::<T>() as u32,
-          buffer.as_mut_ptr().cast(),
-          static_queue.as_mut_ptr(),
-        );
-        assert!(!handle.is_null());
+  fn destroy(ptr: Self::Ptr) {
+    unsafe { vQueueDelete(ptr.as_ptr()) }
+  }
+}
 
-        queue.write(Self::from_raw_handle(handle))
-      }
-    }
+impl<T, const SIZE: usize> LazyInit<QueueHandle_t> for Queue<T, SIZE, Static> {
+  type Data = (MaybeUninit<StaticQueue_t>, [MaybeUninit<T>; SIZE]);
 
-    pub fn new(max_size: usize) -> Result<Queue<T>, FreeRtosError> {
-        let item_size = mem::size_of::<T>();
+  fn init(data: &UnsafeCell<MaybeUninit<Self::Data>>) -> Self::Ptr {
+    let handle = unsafe {
+      // SAFETY: Data only consists of `MaybeUninit`.
+      let data = &mut *data.get();
+      let (queue, items) = data.assume_init_mut();
 
-        let handle = unsafe { xQueueCreate(max_size as u32, item_size as u32) };
+      let q = queue.as_mut_ptr();
 
-        match NonNull::new(handle) {
-          Some(handle) => Ok(Queue { handle, item_type: PhantomData }),
-          None => Err(FreeRtosError::OutOfMemory),
-        }
+      xQueueCreateStatic(
+        SIZE as UBaseType_t,
+        size_of::<T>() as UBaseType_t,
+        MaybeUninit::slice_as_mut_ptr(items).cast(),
+        queue.as_mut_ptr(),
+      )
+    };
+    assert!(!handle.is_null());
+    unsafe { Self::Ptr::new_unchecked(handle) }
+  }
+
+  fn destroy(ptr: Self::Ptr) {
+    unsafe { vQueueDelete(ptr.as_ptr()) }
+  }
+}
+
+unsafe impl<T: Send, const SIZE: usize, A> Send for Queue<T, SIZE, A>
+where
+  Self: LazyInit<QueueHandle_t>,
+{}
+unsafe impl<T: Send, const SIZE: usize, A> Sync for Queue<T, SIZE, A>
+where
+  Self: LazyInit<QueueHandle_t>,
+{}
+
+impl<T: Sized + Send + Copy, const SIZE: usize, A> Queue<T, SIZE, A>
+where
+  Self: LazyInit<QueueHandle_t>,
+{
+    pub const fn new() -> Self {
+      Self { handle: LazyPtr::new(), item_type: PhantomData }
     }
 
     /// Assign a name to the queue and add it to the registry.
@@ -132,17 +142,6 @@ impl<T: Sized + Send + Copy> Queue<T> {
       unsafe {
         vQueueAddToRegistry(self.handle.as_ptr(), name.as_ptr())
       }
-    }
-
-    pub const unsafe fn from_raw_handle(handle: QueueHandle_t) -> Self {
-      Self {
-        handle: NonNull::new_unchecked(handle),
-        item_type: PhantomData,
-      }
-    }
-
-    pub fn as_raw_handle(&self) -> QueueHandle_t {
-      self.handle.as_ptr()
     }
 
     impl_send!();
@@ -157,18 +156,12 @@ impl<T: Sized + Send + Copy> Queue<T> {
 
     /// Create a sender for this queue.
     pub fn sender(&self) -> Sender<T> {
-      Sender { handle: self.handle, item_type: PhantomData }
+      Sender { handle: unsafe { NonNull::new_unchecked(self.handle.as_ptr()) }, item_type: PhantomData }
     }
 
     /// Create a receiver for this queue.
     pub fn receiver(&self) -> Receiver<T> {
-      Receiver { handle: self.handle, item_type: PhantomData }
-    }
-}
-
-impl<T> Drop for Queue<T> {
-    fn drop(&mut self) {
-        unsafe { vQueueDelete(self.handle.as_ptr()) }
+      Receiver { handle: unsafe { NonNull::new_unchecked(self.handle.as_ptr()) }, item_type: PhantomData }
     }
 }
 

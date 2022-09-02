@@ -9,18 +9,18 @@ use crate::queue::*;
 use crate::ticks::*;
 
 /// A pub-sub queue. An item sent to the publisher is sent to every subscriber.
-pub struct QueuePublisher<T: Sized + Copy> {
-    inner: Arc<Mutex<PublisherInner<T>>>,
+pub struct QueuePublisher<T: Sized + Copy, const SUB_SIZE: usize, const PUB_SIZE: usize> {
+    inner: Arc<Mutex<PublisherInner<T, SUB_SIZE, PUB_SIZE>>>,
 }
 
 /// A subscribtion to the publisher.
-pub struct QueueSubscriber<T: Sized + Copy> {
-    inner: Arc<SubscriberInner<T>>,
+pub struct QueueSubscriber<T: Sized + Copy, const SUB_SIZE: usize, const PUB_SIZE: usize> {
+    inner: Arc<SubscriberInner<T, SUB_SIZE, PUB_SIZE>>,
 }
 
-impl<T: Sized + Send + Copy> QueuePublisher<T> {
+impl<T: Sized + Send + Copy, const SUB_SIZE: usize, const PUB_SIZE: usize> QueuePublisher<T, SUB_SIZE, PUB_SIZE> {
     /// Create a new publisher
-    pub fn new() -> Result<QueuePublisher<T>, FreeRtosError> {
+    pub fn new() -> Result<Self, FreeRtosError> {
         let inner = PublisherInner {
             subscribers: Vec::new(),
             queue_next_id: 1,
@@ -48,14 +48,10 @@ impl<T: Sized + Send + Copy> QueuePublisher<T> {
     }
 
     /// Subscribe to this publisher. Can accept a fixed amount of items.
-    pub fn subscribe(
-      &self,
-      max_size: usize,
-      timeout: impl Into<Ticks>,
-    ) -> Result<QueueSubscriber<T>, FreeRtosError> {
+    pub fn subscribe(&self, timeout: impl Into<Ticks>) -> Result<QueueSubscriber<T, SUB_SIZE, PUB_SIZE>, FreeRtosError> {
         let mut inner = self.inner.timed_lock(timeout)?;
 
-        let queue = Queue::new(max_size)?;
+        let queue = Queue::new();
 
         let id = inner.queue_next_id;
         inner.queue_next_id += 1;
@@ -73,7 +69,7 @@ impl<T: Sized + Send + Copy> QueuePublisher<T> {
     }
 }
 
-impl<T: Sized + Copy> Clone for QueuePublisher<T> {
+impl<T: Sized + Copy, const SUB_SIZE: usize, const PUB_SIZE: usize> Clone for QueuePublisher<T, SUB_SIZE, PUB_SIZE> {
     fn clone(&self) -> Self {
         QueuePublisher {
             inner: self.inner.clone(),
@@ -81,7 +77,7 @@ impl<T: Sized + Copy> Clone for QueuePublisher<T> {
     }
 }
 
-impl<T: Sized + Copy> Drop for QueueSubscriber<T> {
+impl<T: Sized + Copy, const SUB_SIZE: usize, const PUB_SIZE: usize> Drop for QueueSubscriber<T, SUB_SIZE, PUB_SIZE> {
     fn drop(&mut self) {
         if let Ok(mut l) = self.inner.publisher.lock() {
             l.unsubscribe(&self.inner);
@@ -89,26 +85,26 @@ impl<T: Sized + Copy> Drop for QueueSubscriber<T> {
     }
 }
 
-impl<T: Sized + Send + Copy> QueueSubscriber<T> {
+impl<T: Sized + Send + Copy, const SUB_SIZE: usize, const PUB_SIZE: usize> QueueSubscriber<T, SUB_SIZE, PUB_SIZE> {
     /// Wait for an item to be posted from the publisher.
     pub fn receive(&self, timeout: impl Into<Ticks>) -> Result<T, FreeRtosError> {
         self.inner.queue.receive(timeout)
     }
 }
 
-struct PublisherInner<T: Sized + Copy> {
-    subscribers: Vec<Arc<SubscriberInner<T>>>,
+struct PublisherInner<T: Sized + Copy, const SUB_SIZE: usize, const PUB_SIZE: usize> {
+    subscribers: Vec<Arc<SubscriberInner<T, SUB_SIZE, PUB_SIZE>>>,
     queue_next_id: usize,
 }
 
-impl<T: Sized + Copy> PublisherInner<T> {
-    fn unsubscribe(&mut self, subscriber: &SubscriberInner<T>) {
+impl<T: Sized + Copy, const SUB_SIZE: usize, const PUB_SIZE: usize> PublisherInner<T, SUB_SIZE, PUB_SIZE> {
+    fn unsubscribe(&mut self, subscriber: &SubscriberInner<T, SUB_SIZE, PUB_SIZE>) {
         self.subscribers.retain(|ref x| x.id != subscriber.id);
     }
 }
 
-struct SubscriberInner<T: Sized + Copy> {
+struct SubscriberInner<T: Sized + Copy, const SUB_SIZE: usize, const PUB_SIZE: usize> {
     id: usize,
-    queue: Queue<T>,
-    publisher: Arc<Mutex<PublisherInner<T>>>,
+    queue: Queue<T, SUB_SIZE>,
+    publisher: Arc<Mutex<PublisherInner<T, SUB_SIZE, PUB_SIZE>>>,
 }
