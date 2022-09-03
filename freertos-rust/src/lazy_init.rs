@@ -1,5 +1,4 @@
 use core::cell::UnsafeCell;
-use core::ffi::c_void;
 use core::mem::MaybeUninit;
 use core::marker::PhantomData;
 use core::ptr::{self, NonNull};
@@ -9,43 +8,43 @@ use crate::shim::{freertos_rs_enter_critical, freertos_rs_exit_critical};
 
 pub trait PtrType {
   type Type;
+  type NonNull = NonNull<Self::Type>;
 }
 
 impl<T> PtrType for *mut T {
   type Type = T;
 }
 
-pub trait LazyInit<P: PtrType = *mut c_void> {
-  type Ptr = NonNull<P::Type>;
+pub trait LazyInit {
+  type Handle: PtrType;
+  type Ptr = NonNull<<Self::Handle as PtrType>::Type>;
   type Data = ();
 
-  fn init(data: &UnsafeCell<MaybeUninit<Self::Data>>) -> NonNull<P::Type>;
+  fn init(data: &UnsafeCell<MaybeUninit<Self::Data>>) -> NonNull<<Self::Handle as PtrType>::Type>;
 
   fn cancel_init_supported() -> bool {
     true
   }
 
-  fn cancel_init(ptr: NonNull<P::Type>) {
+  fn cancel_init(ptr: NonNull<<Self::Handle as PtrType>::Type>) {
     Self::destroy(ptr);
   }
 
-  fn destroy(ptr: NonNull<P::Type>);
+  fn destroy(ptr: NonNull<<Self::Handle as PtrType>::Type>);
 }
 
-pub struct LazyPtr<T: ?Sized, P>
+pub struct LazyPtr<T: ?Sized>
 where
-  T: LazyInit<P>,
-  P: PtrType,
+  T: LazyInit,
 {
-  ptr: AtomicPtr<P::Type>,
-  data: UnsafeCell<MaybeUninit<<T as LazyInit<P>>::Data>>,
+  ptr: AtomicPtr<<<T as LazyInit>::Handle as PtrType>::Type>,
+  data: UnsafeCell<MaybeUninit<<T as LazyInit>::Data>>,
   _type: PhantomData<T>,
 }
 
-impl<T: ?Sized, P> LazyPtr<T, P>
+impl<T: ?Sized> LazyPtr<T>
 where
-  T: LazyInit<P>,
-  P: PtrType,
+  T: LazyInit,
 {
   #[inline]
   pub const fn new() -> Self {
@@ -53,12 +52,12 @@ where
   }
 
   #[inline]
-  pub const unsafe fn new_unchecked(ptr: *mut P::Type) -> Self {
+  pub const unsafe fn new_unchecked(ptr: *mut <<T as LazyInit>::Handle as PtrType>::Type) -> Self {
     Self { ptr: AtomicPtr::new(ptr), data: UnsafeCell::new(MaybeUninit::uninit()), _type: PhantomData }
   }
 
   #[inline]
-  pub fn as_ptr(&self) -> *mut P::Type {
+  pub fn as_ptr(&self) -> *mut <<T as LazyInit>::Handle as PtrType>::Type {
     let ptr = self.ptr.load(Acquire);
     if ptr.is_null() {
       self.initialize()
@@ -68,7 +67,7 @@ where
   }
 
   #[cold]
-  fn initialize(&self) -> *mut P::Type {
+  fn initialize(&self) -> *mut <<T as LazyInit>::Handle as PtrType>::Type {
     // If initialization cannot be cancelled, do it inside of a critical section
     // so that initialization and storing the pointer is done atomically.
     if !T::cancel_init_supported() {
@@ -94,10 +93,9 @@ where
   }
 }
 
-impl<T: ?Sized, P> Drop for LazyPtr<T, P>
+impl<T: ?Sized> Drop for LazyPtr<T>
 where
-  P: PtrType,
-  T: LazyInit<P>,
+  T: LazyInit,
 {
   fn drop(&mut self) {
     if let Some(ptr) = NonNull::new(*self.ptr.get_mut()) {

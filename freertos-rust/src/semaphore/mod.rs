@@ -23,9 +23,9 @@ pub struct Counting<const MAX: u32, const INITIAL: u32> {}
 /// A counting or binary semaphore.
 pub struct Semaphore<T, A = Dynamic>
 where
-  Self: LazyInit<SemaphoreHandle_t>,
+  Self: LazyInit,
 {
-    handle: LazyPtr<Self, SemaphoreHandle_t>,
+    handle: LazyPtr<Self>,
     _alloc_type: PhantomData<A>,
 }
 
@@ -40,7 +40,7 @@ macro_rules! impl_semaphore {
   ) => {
     impl<$(const $max: $max_ty, const $initial: $initial_ty,)*> Semaphore<$semaphore$(<$max, $initial>)*, Dynamic>
     where
-      Self: LazyInit<SemaphoreHandle_t>,
+      Self: LazyInit,
     {
       #[doc = concat!("Create a new dynamic ", stringify!($variant_name), " semaphore.")]
       pub const fn $new_fn() -> Self {
@@ -52,7 +52,7 @@ macro_rules! impl_semaphore {
 
     impl<$(const $max: $max_ty, const $initial: $initial_ty,)*> Semaphore<$semaphore$(<$max, $initial>)*, Static>
     where
-      Self: LazyInit<SemaphoreHandle_t>,
+      Self: LazyInit,
     {
       #[doc = concat!("Create a new static ", stringify!($variant_name), " semaphore.")]
       ///
@@ -76,7 +76,7 @@ macro_rules! impl_semaphore {
 
     impl<$(const $max: $max_ty, const $initial: $initial_ty,)* A> Deref for Semaphore<$semaphore$(<$max, $initial>)*, A>
     where
-      Self: LazyInit<SemaphoreHandle_t>,
+      Self: LazyInit<Handle = SemaphoreHandle_t>,
     {
       type Target = SemaphoreHandle;
 
@@ -85,7 +85,9 @@ macro_rules! impl_semaphore {
       }
     }
 
-    impl$(<const $max: $max_ty, const $initial: $initial_ty>)* LazyInit<SemaphoreHandle_t> for Semaphore<$semaphore$(<$max, $initial>)*, Dynamic> {
+    impl$(<const $max: $max_ty, const $initial: $initial_ty>)* LazyInit for Semaphore<$semaphore$(<$max, $initial>)*, Dynamic> {
+      type Handle = SemaphoreHandle_t;
+
       fn init(_data: &UnsafeCell<MaybeUninit<()>>) -> Self::Ptr {
         let ptr = unsafe { $create($($max, $initial)*) };
         assert!(!ptr.is_null());
@@ -97,7 +99,8 @@ macro_rules! impl_semaphore {
       }
     }
 
-    impl$(<const $max: $max_ty, const $initial: $initial_ty>)* LazyInit<SemaphoreHandle_t> for Semaphore<$semaphore$(<$max, $initial>)*, Static> {
+    impl$(<const $max: $max_ty, const $initial: $initial_ty>)* LazyInit for Semaphore<$semaphore$(<$max, $initial>)*, Static> {
+      type Handle = SemaphoreHandle_t;
       type Data = StaticSemaphore_t;
 
       fn init(data: &UnsafeCell<MaybeUninit<Self::Data>>) -> Self::Ptr {
@@ -140,9 +143,9 @@ impl_semaphore!(
 
 unsafe impl<T: Send, A: Send> Send for Semaphore<T, A>
 where
-  Self: LazyInit<SemaphoreHandle_t>,
+  Self: LazyInit,
 {}
 unsafe impl<T: Send, A> Sync for Semaphore<T, A>
 where
-  Self: LazyInit<SemaphoreHandle_t>,
+  Self: LazyInit,
 {}

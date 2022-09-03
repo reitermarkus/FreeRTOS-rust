@@ -88,7 +88,7 @@ mod lazy_init;
 #[cfg(feature = "sync")]
 pub mod mutex;
 #[cfg(feature = "sync")]
-mod queue;
+pub mod queue;
 #[cfg(feature = "sync")]
 pub mod semaphore;
 #[cfg(any(feature = "time", feature = "sync"))]

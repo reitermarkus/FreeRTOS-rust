@@ -70,13 +70,15 @@ macro_rules! impl_receive {
 /// copied.
 pub struct Queue<T, const SIZE: usize, A = Dynamic>
 where
-  Self: LazyInit<QueueHandle_t>,
+  Self: LazyInit,
 {
-  handle: LazyPtr<Self, QueueHandle_t>,
+  handle: LazyPtr<Self>,
   item_type: PhantomData<T>,
 }
 
-impl<T, const SIZE: usize> LazyInit<QueueHandle_t> for Queue<T, SIZE, Dynamic> {
+impl<T, const SIZE: usize> LazyInit for Queue<T, SIZE, Dynamic> {
+  type Handle = QueueHandle_t;
+
   fn init(_data: &UnsafeCell<MaybeUninit<Self::Data>>) -> Self::Ptr {
     let handle = unsafe {
       xQueueCreate(
@@ -93,7 +95,8 @@ impl<T, const SIZE: usize> LazyInit<QueueHandle_t> for Queue<T, SIZE, Dynamic> {
   }
 }
 
-impl<T, const SIZE: usize> LazyInit<QueueHandle_t> for Queue<T, SIZE, Static> {
+impl<T, const SIZE: usize> LazyInit for Queue<T, SIZE, Static> {
+  type Handle = QueueHandle_t;
   type Data = (MaybeUninit<StaticQueue_t>, [MaybeUninit<T>; SIZE]);
 
   fn init(data: &UnsafeCell<MaybeUninit<Self::Data>>) -> Self::Ptr {
@@ -120,21 +123,49 @@ impl<T, const SIZE: usize> LazyInit<QueueHandle_t> for Queue<T, SIZE, Static> {
 
 unsafe impl<T: Send, const SIZE: usize, A> Send for Queue<T, SIZE, A>
 where
-  Self: LazyInit<QueueHandle_t>,
+  Self: LazyInit,
 {}
 unsafe impl<T: Send, const SIZE: usize, A> Sync for Queue<T, SIZE, A>
 where
-  Self: LazyInit<QueueHandle_t>,
+  Self: LazyInit,
 {}
 
-impl<T: Sized + Send + Copy, const SIZE: usize, A> Queue<T, SIZE, A>
+impl<T: Sized + Send + Copy, const SIZE: usize> Queue<T, SIZE, Dynamic>
 where
-  Self: LazyInit<QueueHandle_t>,
+  Self: LazyInit,
 {
+    /// Create a new dynamic queue.
     pub const fn new() -> Self {
       Self { handle: LazyPtr::new(), item_type: PhantomData }
     }
+}
 
+impl<T: Sized + Send + Copy, const SIZE: usize> Queue<T, SIZE, Static>
+where
+  Self: LazyInit,
+{
+    /// Create a new static queue.
+    ///
+    /// # Safety
+    ///
+    /// The returned queue must be pinned before using it.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use freertos_rust::pin_static;
+    ///
+    /// pin_static!(pub static QUEUE = Queue::<8>::new_static());
+    /// ```
+    pub const unsafe fn new_static() -> Self {
+      Self { handle: LazyPtr::new(), item_type: PhantomData }
+    }
+}
+
+impl<T: Sized + Send + Copy, const SIZE: usize, A> Queue<T, SIZE, A>
+where
+  Self: LazyInit<Handle = QueueHandle_t>,
+{
     /// Assign a name to the queue and add it to the registry.
     pub fn add_to_registry(&self, name: &'static CStr) {
       unsafe {
