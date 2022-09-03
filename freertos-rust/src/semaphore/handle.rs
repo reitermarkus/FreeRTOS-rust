@@ -9,6 +9,7 @@ use crate::{
     errQUEUE_FULL,
     pdFALSE,
     pdTRUE,
+    SemaphoreHandle_t,
     xSemaphoreGive,
     xSemaphoreGiveFromISR,
     xSemaphoreGiveRecursive,
@@ -17,8 +18,6 @@ use crate::{
     xSemaphoreTakeFromISR,
   },
 };
-
-use crate::ffi::SemaphoreHandle_t;
 
 use super::SemaphoreGuard;
 
