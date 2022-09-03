@@ -18,7 +18,9 @@ use crate::{
   },
 };
 
-pub use crate::shim::SemaphoreHandle_t;
+use crate::ffi::SemaphoreHandle_t;
+
+use super::SemaphoreGuard;
 
 /// A handle for low-level management of a semaphore.
 ///
@@ -48,10 +50,10 @@ impl SemaphoreHandle {
     self as *const _ as SemaphoreHandle_t
   }
 
-  /// Increment the semaphore or unlock the mutex.
+  /// Increment the semaphore.
   #[inline]
-  pub unsafe fn give(&self) -> Result<(), FreeRtosError> {
-    match xSemaphoreGive(self.as_ptr()) {
+  pub fn give(&self) -> Result<(), FreeRtosError> {
+    match unsafe { xSemaphoreGive(self.as_ptr()) } {
       pdTRUE => Ok(()),
       errQUEUE_FULL => Err(FreeRtosError::QueueFull),
       _ => unreachable!(),
@@ -60,8 +62,8 @@ impl SemaphoreHandle {
 
   /// Unlock the mutex recursively.
   #[inline]
-  pub unsafe fn give_recursive(&self) -> Result<(), FreeRtosError> {
-    match xSemaphoreGiveRecursive(self.as_ptr()) {
+  pub(crate) fn give_recursive(&self) -> Result<(), FreeRtosError> {
+    match unsafe { xSemaphoreGiveRecursive(self.as_ptr()) } {
       pdTRUE => Ok(()),
       pdFALSE => Err(FreeRtosError::QueueFull),
       _ => unreachable!(),
@@ -70,18 +72,18 @@ impl SemaphoreHandle {
 
   /// Increment the semaphore or unlock the mutex from within an interrupt service routine.
   #[inline]
-  pub unsafe fn give_from_isr(&self, ic: &mut InterruptContext) -> Result<(), FreeRtosError> {
-    match xSemaphoreGiveFromISR(self.as_ptr(), ic.as_ptr()) {
+  pub fn give_from_isr(&self, ic: &mut InterruptContext) -> Result<(), FreeRtosError> {
+    match unsafe { xSemaphoreGiveFromISR(self.as_ptr(), ic.as_ptr()) } {
       pdTRUE => Ok(()),
       errQUEUE_FULL => Err(FreeRtosError::QueueFull),
       _ => unreachable!(),
     }
   }
 
-  /// Decrement the semaphore or lock the mutex.
+  /// Decrement the semaphore.
   #[inline]
-  pub unsafe fn take(&self, timeout: impl Into<Ticks>) -> Result<(), FreeRtosError> {
-    match xSemaphoreTake(self.as_ptr(), timeout.into().as_ticks()) {
+  pub fn take(&self, timeout: impl Into<Ticks>) -> Result<(), FreeRtosError> {
+    match unsafe { xSemaphoreTake(self.as_ptr(), timeout.into().as_ticks()) } {
       pdTRUE => Ok(()),
       pdFALSE => Err(FreeRtosError::Timeout),
       _ => unreachable!(),
@@ -90,8 +92,8 @@ impl SemaphoreHandle {
 
   /// Lock the mutex recursively.
   #[inline]
-  pub unsafe fn take_recursive(&self, timeout: impl Into<Ticks>) -> Result<(), FreeRtosError> {
-    match xSemaphoreTakeRecursive(self.as_ptr(), timeout.into().as_ticks()) {
+  pub(crate) fn take_recursive(&self, timeout: impl Into<Ticks>) -> Result<(), FreeRtosError> {
+    match unsafe { xSemaphoreTakeRecursive(self.as_ptr(), timeout.into().as_ticks()) } {
       pdTRUE => Ok(()),
       pdFALSE => Err(FreeRtosError::Timeout),
       _ => unreachable!(),
@@ -100,11 +102,18 @@ impl SemaphoreHandle {
 
   /// Decrement the semaphore or lock the mutex from within an interrupt service routine.
   #[inline]
-  pub unsafe fn take_from_isr(&self, ic: &mut InterruptContext) -> Result<(), FreeRtosError> {
-    match xSemaphoreTakeFromISR(self.as_ptr(), ic.as_ptr()) {
+  pub fn take_from_isr(&self, ic: &mut InterruptContext) -> Result<(), FreeRtosError> {
+    match unsafe { xSemaphoreTakeFromISR(self.as_ptr(), ic.as_ptr()) } {
       pdTRUE => Ok(()),
       pdFALSE => Err(FreeRtosError::Unavailable),
       _ => unreachable!(),
     }
+  }
+
+  /// Lock this semaphore in RAII fashion.
+  pub fn lock(&self, timeout: impl Into<Ticks>) -> Result<SemaphoreGuard<'_>, FreeRtosError> {
+    self.take(timeout)?;
+
+    Ok(SemaphoreGuard { handle: self })
   }
 }

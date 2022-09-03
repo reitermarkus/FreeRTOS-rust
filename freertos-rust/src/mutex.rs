@@ -6,12 +6,12 @@ use core::ops::{Deref, DerefMut};
 use core::time::Duration;
 use core::pin::Pin;
 
-use crate::ffi::SemaphoreHandle;
 use crate::alloc::{Dynamic, Static};
 use crate::error::FreeRtosError;
 use crate::lazy_init::{LazyInit, LazyPtr};
 use crate::shim::*;
 use crate::ticks::*;
+use crate::semaphore::SemaphoreHandle;
 
 macro_rules! guard_impl_deref_mut {
   (MutexGuard) => {
@@ -49,7 +49,7 @@ macro_rules! impl_inner {
       let this = self$(.$get_ref())*;
 
       let handle = unsafe { SemaphoreHandle::from_ptr(this.handle.as_ptr()) };
-      unsafe { handle.$take(timeout)? };
+      handle.$take(timeout)?;
 
       Ok($guard { handle, data: &this.data })
     }
@@ -205,7 +205,7 @@ macro_rules! impl_mutex {
       /// Unlocks the mutex.
       #[inline]
       fn drop(&mut self) {
-        let _ = unsafe { self.handle.$give() };
+        let _ = self.handle.$give();
       }
     }
   };
