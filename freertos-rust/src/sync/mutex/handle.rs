@@ -3,7 +3,7 @@ use core::cell::UnsafeCell;
 
 use crate::shim::portMAX_DELAY;
 use crate::FreeRtosError;
-use crate::semaphore::SemaphoreHandle;
+use crate::sync::SemaphoreHandle;
 use crate::shim::{
   SemaphoreHandle_t,
 };
@@ -22,7 +22,8 @@ macro_rules! impl_mutex_handle {
     ///
     /// This type is compatible with a raw FreeRTOS mutex if `T` is zero-sized.
     pub struct $handle<T: ?Sized> {
-      ptr: SemaphoreHandle_t, // TODO: Assert, same layout as `AtomicPtr<<SemaphoreHandle_t as PtrType>::Type>`.
+      // TODO: Assert, same layout as `AtomicPtr<<SemaphoreHandle_t as PtrType>::Type>`.
+      ptr: SemaphoreHandle_t,
       data: UnsafeCell<T>,
     }
 

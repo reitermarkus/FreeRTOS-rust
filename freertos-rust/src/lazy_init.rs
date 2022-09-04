@@ -59,6 +59,11 @@ where
       data: UnsafeCell::new(data),
     }
   }
+
+  pub const fn ptr_ptr(&self) -> *const AtomicPtr<<<T as LazyInit>::Handle as PtrType>::Type> {
+    ptr::addr_of!(self.ptr)
+  }
+
   pub fn into_data(self) -> D {
     let mut this = ManuallyDrop::new(self);
     this.deinitialize();

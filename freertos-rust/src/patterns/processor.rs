@@ -6,8 +6,7 @@ use alloc2::{
 };
 
 use crate::error::*;
-use crate::mutex::*;
-use crate::queue::*;
+use crate::sync::{Mutex, Queue};
 use crate::ticks::*;
 
 pub type SharedClientWithReplyQueue<O, const SIZE: usize> = Arc<ClientWithReplyQueue<O, SIZE>>;

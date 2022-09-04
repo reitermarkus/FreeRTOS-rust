@@ -82,7 +82,9 @@ macro_rules! impl_semaphore {
       type Target = SemaphoreHandle;
 
       fn deref(&self) -> &Self::Target {
-        unsafe { SemaphoreHandle::from_ptr(self.handle.as_ptr()) }
+        // Ensure semaphore is initialized.
+        let handle = self.handle.as_ptr();
+        unsafe { SemaphoreHandle::from_ptr(handle) }
       }
     }
 
@@ -92,6 +94,7 @@ macro_rules! impl_semaphore {
       fn init(_storage: &UnsafeCell<MaybeUninit<()>>) -> Self::Ptr {
         let ptr = unsafe { $create($($max, $initial)*) };
         assert!(!ptr.is_null());
+
         unsafe { Self::Ptr::new_unchecked(ptr) }
       }
 

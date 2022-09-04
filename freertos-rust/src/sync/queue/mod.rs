@@ -131,7 +131,9 @@ where
   type Target = QueueHandle<T>;
 
   fn deref(&self) -> &Self::Target {
-    unsafe { QueueHandle::<T>::from_ptr(self.handle.as_ptr()) }
+    // Ensure semaphore is initialized.
+    let handle = self.handle.as_ptr();
+    unsafe { QueueHandle::<T>::from_ptr(handle) }
   }
 }
 

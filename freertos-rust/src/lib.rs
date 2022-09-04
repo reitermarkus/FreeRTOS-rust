@@ -72,6 +72,7 @@ mod shim;
 pub mod ffi;
 
 pub mod alloc;
+pub use alloc::Allocator;
 
 #[cfg(feature = "critical_section")]
 pub mod critical_section;
@@ -80,14 +81,14 @@ pub mod critical_section;
 mod delay;
 #[cfg(feature = "interrupt")]
 mod isr;
-#[cfg(feature = "sync")]
+
 mod lazy_init;
+
 #[cfg(feature = "sync")]
-pub mod mutex;
+pub mod sync;
 #[cfg(feature = "sync")]
-pub mod queue;
-#[cfg(feature = "sync")]
-pub mod semaphore;
+pub use sync::*;
+
 #[cfg(any(feature = "time", feature = "sync"))]
 pub mod task;
 #[cfg(feature = "time")]
@@ -99,22 +100,16 @@ mod utils;
 #[cfg(feature = "sync")]
 pub mod patterns;
 
-// Internal stuff that is only public for first Proof of Concept
 pub use crate::error::*;
-// ----------
 
 pub use crate::error::FreeRtosError;
 #[cfg(feature = "time")]
 pub use crate::delay::*;
 pub use crate::assert::*;
+
 #[cfg(feature = "interrupt")]
 pub use crate::isr::*;
-#[cfg(feature = "sync")]
-pub use crate::mutex::*;
-#[cfg(feature = "sync")]
-pub use crate::queue::*;
-#[cfg(feature = "sync")]
-pub use crate::semaphore::Semaphore;
+
 #[cfg(any(feature = "time", feature = "sync"))]
 pub use crate::task::*;
 #[cfg(feature = "time")]

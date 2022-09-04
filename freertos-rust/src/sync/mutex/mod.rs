@@ -168,11 +168,10 @@ macro_rules! impl_mutex {
       type Target = $handle<T>;
 
       fn deref(&self) -> &Self::Target {
-        unsafe {
-          let storage = ptr::addr_of!(self.handle).cast::<<Self as LazyInit>::Storage>();
-          let handle = storage.add(1).cast::<Self::Target>();
-          &*handle
-        }
+        // Ensure mutex is initialized.
+        self.handle.as_ptr();
+
+        unsafe { &*self.handle.ptr_ptr().cast() }
       }
     }
 

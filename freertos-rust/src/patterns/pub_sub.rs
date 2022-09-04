@@ -4,9 +4,8 @@ use alloc2::{
 };
 
 use crate::error::*;
-use crate::mutex::*;
-use crate::queue::*;
-use crate::ticks::*;
+use crate::sync::{Mutex, Queue};
+use crate::ticks::Ticks;
 
 /// A pub-sub queue. An item sent to the publisher is sent to every subscriber.
 pub struct QueuePublisher<T: Sized + Copy, const SUB_SIZE: usize, const PUB_SIZE: usize> {
