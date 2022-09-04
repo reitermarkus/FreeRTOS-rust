@@ -1,6 +1,5 @@
 use core::ffi::CStr;
 use core::marker::PhantomData;
-use core::mem::MaybeUninit;
 use core::pin::Pin;
 
 use alloc2::boxed::Box;

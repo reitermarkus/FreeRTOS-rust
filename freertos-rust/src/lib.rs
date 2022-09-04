@@ -22,14 +22,14 @@
 //!
 //! ```rust
 //! # use freertos_rs::*;
-//! Task::new().name("hello").stack_size(128).start(|| {
+//! Task::new().name("hello").stack_size(128).start(|task| {
 //! 	loop {
 //! 		println!("Hello world!");
-//! 		CurrentTask::delay(Duration::MAX);
+//! 		task.delay(Duration::MAX);
 //! 	}
 //! }).unwrap();
 //!
-//! FreeRtosUtils::start_scheduler();
+//! Task::start_scheduler();
 //! ```
 //!
 //! Queue

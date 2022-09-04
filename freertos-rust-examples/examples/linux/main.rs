@@ -16,11 +16,11 @@ fn main() {
     //FreeRtosUtils::invoke_assert();
 
     println!("Starting FreeRTOS app ...");
-    Task::new().name("hello").stack_size(128).priority(TaskPriority(2)).start(|_this_task| {
+    Task::new().name("hello").stack_size(128).priority(TaskPriority(2)).start(|task| {
         let mut i = 0;
         loop {
             println!("Hello from Task! {}", i);
-            CurrentTask::delay(Duration::ms(1000));
+            task.delay(Duration::ms(1000));
             i = i + 1;
         }
     }).unwrap();

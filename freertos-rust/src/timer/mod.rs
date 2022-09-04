@@ -2,7 +2,6 @@ use core::cell::UnsafeCell;
 use core::ffi::CStr;
 use core::marker::PhantomData;
 use core::mem;
-use core::mem::MaybeUninit;
 use core::ops::Deref;
 use core::pin::Pin;
 use core::ptr;

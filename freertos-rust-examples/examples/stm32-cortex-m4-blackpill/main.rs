@@ -63,11 +63,11 @@ fn main() -> ! {
     let gpioc = dp.GPIOC.split();
     let mut device = MyDevice::from_pins(gpioc.pc13.into_push_pull_output());
     device.set_led(false);
-    Task::new().name("hello").stack_size(128).priority(TaskPriority(2)).start(move |_| {
+    Task::new().name("hello").stack_size(128).priority(TaskPriority(2)).start(move |task| {
         loop{
-            freertos_rust::CurrentTask::delay(Duration::ms(1000));
+            task.delay(Duration::ms(1000));
             device.set_led(true);
-            freertos_rust::CurrentTask::delay(Duration::ms(1000));
+            task.delay(Duration::ms(1000));
             device.set_led(false);
         }
     }).unwrap();

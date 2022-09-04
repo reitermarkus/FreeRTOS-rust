@@ -1,7 +1,7 @@
 use embedded_hal::blocking::delay::DelayMs;
 
 use crate::ffi::TickType_t;
-use crate::shim::{pdTRUE, vTaskDelay, vTaskDelayUntil, portTICK_PERIOD_MS};
+use crate::shim::{vTaskDelay, vTaskDelayUntil, portTICK_PERIOD_MS};
 use crate::task::Scheduler;
 use crate::ticks::Ticks;
 

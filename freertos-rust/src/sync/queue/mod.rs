@@ -30,7 +30,7 @@ impl<T, const SIZE: usize> LazyInit for Queue<T, SIZE, Dynamic> {
   type Handle = QueueHandle_t;
   type Data = ();
 
-  fn init(data: &UnsafeCell<Self::Data>, storage: &UnsafeCell<MaybeUninit<Self::Storage>>) -> Self::Ptr {
+  fn init(_data: &UnsafeCell<Self::Data>, _storage: &UnsafeCell<MaybeUninit<Self::Storage>>) -> Self::Ptr {
     let handle = unsafe {
       xQueueCreate(
         (mem::size_of::<T>() * SIZE) as UBaseType_t,
