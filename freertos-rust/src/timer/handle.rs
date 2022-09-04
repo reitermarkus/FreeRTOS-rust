@@ -1,0 +1,134 @@
+use core::ffi::CStr;
+use core::ptr;
+
+use crate::FreeRtosError;
+use crate::InterruptContext;
+use crate::Ticks;
+use crate::ffi::TimerHandle_t;
+use crate::lazy_init::PtrType;
+use crate::shim::pcTimerGetName;
+use crate::shim::pdFALSE;
+use crate::shim::pdPASS;
+use crate::shim::xTimerChangePeriod;
+use crate::shim::xTimerChangePeriodFromISR;
+use crate::shim::xTimerIsTimerActive;
+use crate::shim::xTimerStart;
+use crate::shim::xTimerStartFromISR;
+use crate::shim::xTimerStop;
+use crate::shim::xTimerStopFromISR;
+
+/// A handle for low-level management of a timer.
+///
+/// See [`Timer`](crate::timer::Timer) for the preferred owned version.
+///
+/// This type is compatible with a raw FreeRTOS timer.
+#[repr(transparent)]
+pub struct TimerHandle(<TimerHandle_t as PtrType>::Type);
+
+impl TimerHandle {
+  /// Create a `TimerHandle` from a raw handle.
+  ///
+  /// # Safety
+  ///
+  /// - `ptr` must point to a valid timer.
+  /// - The timer must not be deleted for the lifetime `'a` of the returned `TimerHandle`.
+  pub const unsafe fn from_ptr<'a>(ptr: TimerHandle_t) -> &'a Self {
+    &*ptr.cast::<Self>()
+  }
+
+  /// Get the raw timer handle.
+  pub const fn as_ptr(&self) -> TimerHandle_t {
+    ptr::addr_of!(self.0).cast_mut()
+  }
+
+  /// Get the timer's name if is has one.
+  #[inline]
+  pub fn name(&self) -> Option<&str> {
+    match unsafe { pcTimerGetName(self.as_ptr()) } {
+      name if !name.is_null() => {
+        Some(unsafe { CStr::from_ptr(name).to_str().unwrap() })
+      },
+      _ => None,
+    }
+  }
+
+  /// Check if the timer is active.
+  #[inline]
+  pub fn is_active(&self) -> bool {
+    unsafe { xTimerIsTimerActive(self.as_ptr()) != pdFALSE }
+  }
+
+  /// Start the timer.
+  #[inline]
+  pub fn start(&self, timeout: impl Into<Ticks>) -> Result<(), FreeRtosError> {
+    match unsafe { xTimerStart(self.as_ptr(), timeout.into().as_ticks()) } {
+      pdPASS => Ok(()),
+      _ => Err(FreeRtosError::Timeout),
+    }
+  }
+
+  /// Start the timer from an interrupt service routine.
+  #[inline]
+  pub fn start_from_isr(&self, ic: &mut InterruptContext) -> Result<(), FreeRtosError> {
+    match unsafe { xTimerStartFromISR(self.as_ptr(), ic.as_ptr()) } {
+      pdPASS => Ok(()),
+      _ => Err(FreeRtosError::Timeout),
+    }
+  }
+
+  /// Stop the timer.
+  #[inline]
+  pub fn stop(&self, timeout: impl Into<Ticks>) -> Result<(), FreeRtosError> {
+    match unsafe { xTimerStop(self.as_ptr(), timeout.into().as_ticks()) } {
+      pdPASS => Ok(()),
+      _ => Err(FreeRtosError::Timeout),
+    }
+  }
+
+  /// Stop the timer from an interrupt service routine.
+  #[inline]
+  pub fn stop_from_isr(&self, ic: &mut InterruptContext) -> Result<(), FreeRtosError> {
+    match unsafe { xTimerStopFromISR(self.as_ptr(), ic.as_ptr()) } {
+      pdPASS => Ok(()),
+      _ => Err(FreeRtosError::Timeout),
+    }
+  }
+
+  /// Change the timer's period.
+  #[inline]
+  pub fn change_period(
+    &self,
+    new_period: impl Into<Ticks>,
+    timeout: impl Into<Ticks>,
+  ) -> Result<(), FreeRtosError> {
+    match unsafe {
+      xTimerChangePeriod(
+        self.as_ptr(),
+        new_period.into().as_ticks(),
+        timeout.into().as_ticks(),
+      )
+    } {
+      pdPASS => Ok(()),
+      _ => Err(FreeRtosError::Timeout),
+    }
+  }
+
+  /// Change the timer's period from an interrupt service routine.
+  #[inline]
+  pub fn change_period_from_isr(
+    &self,
+    new_period: impl Into<Ticks>,
+    id: &mut InterruptContext,
+  ) -> Result<(), FreeRtosError> {
+    match unsafe {
+      xTimerChangePeriodFromISR(
+        self.as_ptr(),
+        new_period.into().as_ticks(),
+        id.as_ptr(),
+      )
+    } {
+      pdPASS => Ok(()),
+      _ => Err(FreeRtosError::Timeout),
+    }
+  }
+}

@@ -86,7 +86,7 @@ macro_rules! impl_mutex {
       fn destroy(ptr: Self::Ptr, storage: &mut MaybeUninit<Self::Storage>) {
         unsafe {
           vSemaphoreDelete(ptr.as_ptr());
-          ptr::drop_in_place(storage.as_mut_ptr());
+          storage.assume_init_drop();
         }
       }
     }

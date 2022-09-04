@@ -1,4 +1,4 @@
-use core::fmt;
+use core::{fmt, ptr};
 
 use crate::{
   FreeRtosError,
@@ -46,7 +46,7 @@ impl SemaphoreHandle {
 
   /// Get the raw semaphore handle.
   pub const fn as_ptr(&self) -> SemaphoreHandle_t {
-    self as *const _ as SemaphoreHandle_t
+    ptr::addr_of!(self.0).cast_mut()
   }
 
   /// Increment the semaphore.

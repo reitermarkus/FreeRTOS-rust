@@ -32,19 +32,19 @@ impl<T> fmt::Debug for QueueHandle<T> {
 }
 
 impl<T> QueueHandle<T> {
-  /// Create a a `SemaphoreHandle` from a raw handle.
+  /// Create a `QueueHandle` from a raw handle.
   ///
   /// # Safety
   ///
   /// - `ptr` must point to a valid queue.
-  /// - The queue must not be deleted for the lifetime `'a` of the returned `SemaphoreHandle`.
+  /// - The queue must not be deleted for the lifetime `'a` of the returned `QueueHandle`.
   pub const unsafe fn from_ptr<'a>(ptr: QueueHandle_t) -> &'a Self {
     &*ptr.cast::<Self>()
   }
 
   /// Get the raw queue handle.
   pub const fn as_ptr(&self) -> QueueHandle_t {
-    self as *const _ as QueueHandle_t
+    ptr::addr_of!(self.0).cast_mut()
   }
 
   /// Assign a name to the queue and add it to the registry.

@@ -16,14 +16,13 @@ use super::{
 };
 
 macro_rules! impl_mutex_handle {
-  ($handle:ident, $guard:ident, $take:ident, $give:ident $(,)?) => {
-    /// A handle for low-level management of a semaphore.
+  ($mutex:ident, $handle:ident, $guard:ident, $take:ident, $give:ident $(,)?) => {
+    /// A handle for low-level management of a mutex.
     ///
-    /// See [`Semaphore`](crate::Semaphore) for the preferred owned version.
+    #[doc = concat!("See [`", stringify!($mutex), "`](crate::sync::", stringify!($mutex), ") for the preferred owned version.")]
     ///
-    /// This type is compatible with a raw FreeRTOS mutex if `T` is zero-sized.
+    #[doc = concat!("`", stringify!($handle), "<()>` is compatible with a raw FreeRTOS mutex.")]
     pub struct $handle<T: ?Sized = ()> {
-      // TODO: Assert, same layout as `AtomicPtr<<SemaphoreHandle_t as PtrType>::Type>`.
       ptr: SemaphoreHandle_t,
       data: UnsafeCell<T>,
     }
@@ -115,12 +114,14 @@ macro_rules! impl_mutex_handle {
 
 
 impl_mutex_handle!(
+  Mutex,
   MutexHandle,
   MutexGuard,
   take,
   give,
 );
 impl_mutex_handle!(
+  RecursiveMutex,
   RecursiveMutexHandle,
   RecursiveMutexGuard,
   take_recursive,

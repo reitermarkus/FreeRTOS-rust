@@ -50,6 +50,14 @@ where
     unsafe { Self::new_unchecked(ptr::null_mut(), data) }
   }
 
+  pub const fn new_with_storage(data: D, storage: <T as LazyInit>::Storage) -> Self {
+    Self {
+      storage: UnsafeCell::new(MaybeUninit::new(storage)),
+      ptr: AtomicPtr::new(ptr::null_mut()),
+      data: UnsafeCell::new(data),
+    }
+  }
+
   #[inline]
   pub const unsafe fn new_unchecked(ptr: *mut <<T as LazyInit>::Handle as PtrType>::Type, data: D) -> Self {
     Self {

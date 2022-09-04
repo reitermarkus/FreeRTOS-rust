@@ -90,10 +90,13 @@ pub mod sync;
 #[cfg(feature = "sync")]
 pub use sync::*;
 
-#[cfg(any(feature = "time", feature = "sync"))]
 pub mod task;
+
 #[cfg(feature = "time")]
-mod timers;
+pub mod timer;
+pub use crate::timer::*;
+
+
 #[cfg(any(feature = "time", feature = "sync"))]
 mod ticks;
 mod utils;
@@ -114,7 +117,6 @@ pub use crate::isr::*;
 #[cfg(any(feature = "time", feature = "sync"))]
 pub use crate::task::*;
 #[cfg(feature = "time")]
-pub use crate::timers::*;
 #[cfg(any(feature = "time", feature = "sync"))]
 pub use crate::ticks::*;
 
