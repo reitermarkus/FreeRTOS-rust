@@ -40,7 +40,7 @@ macro_rules! impl_semaphore {
   ) => {
     impl<$(const $max: $max_ty, const $initial: $initial_ty,)*> Semaphore<$semaphore$(<$max, $initial>)*, Dynamic>
     where
-      Self: LazyInit,
+      Self: LazyInit<Data = ()>,
     {
       #[doc = concat!("Create a new dynamic ", stringify!($variant_name), " semaphore.")]
       pub const fn $new_fn() -> Self {
@@ -52,7 +52,7 @@ macro_rules! impl_semaphore {
 
     impl<$(const $max: $max_ty, const $initial: $initial_ty,)*> Semaphore<$semaphore$(<$max, $initial>)*, Static>
     where
-      Self: LazyInit,
+      Self: LazyInit<Data = ()>,
     {
       #[doc = concat!("Create a new static ", stringify!($variant_name), " semaphore.")]
       ///
@@ -93,8 +93,9 @@ macro_rules! impl_semaphore {
 
     impl$(<const $max: $max_ty, const $initial: $initial_ty>)* LazyInit for Semaphore<$semaphore$(<$max, $initial>)*, Dynamic> {
       type Handle = SemaphoreHandle_t;
+      type Data = ();
 
-      fn init(_storage: &UnsafeCell<MaybeUninit<()>>) -> Self::Ptr {
+      fn init(_data: &UnsafeCell<Self::Data>, _storage: &UnsafeCell<MaybeUninit<Self::Storage>>) -> Self::Ptr {
         let ptr = unsafe { $create($($max, $initial)*) };
         assert!(!ptr.is_null());
 
@@ -107,10 +108,11 @@ macro_rules! impl_semaphore {
     }
 
     impl$(<const $max: $max_ty, const $initial: $initial_ty>)* LazyInit for Semaphore<$semaphore$(<$max, $initial>)*, Static> {
-      type Handle = SemaphoreHandle_t;
       type Storage = StaticSemaphore_t;
+      type Handle = SemaphoreHandle_t;
+      type Data = ();
 
-      fn init(storage: &UnsafeCell<MaybeUninit<Self::Storage>>) -> Self::Ptr {
+      fn init(_data: &UnsafeCell<Self::Data>, storage: &UnsafeCell<MaybeUninit<Self::Storage>>) -> Self::Ptr {
         unsafe {
           let storage = &mut *storage.get();
           let ptr = $create_static($($max, $initial,)* storage.as_mut_ptr());

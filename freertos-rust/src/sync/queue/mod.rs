@@ -23,13 +23,14 @@ where
 {
   alloc_type: PhantomData<A>,
   item_type: PhantomData<T>,
-  handle: LazyPtr<Self, ()>,
+  handle: LazyPtr<Self>,
 }
 
 impl<T, const SIZE: usize> LazyInit for Queue<T, SIZE, Dynamic> {
   type Handle = QueueHandle_t;
+  type Data = ();
 
-  fn init(_storage: &UnsafeCell<MaybeUninit<Self::Storage>>) -> Self::Ptr {
+  fn init(data: &UnsafeCell<Self::Data>, storage: &UnsafeCell<MaybeUninit<Self::Storage>>) -> Self::Ptr {
     let handle = unsafe {
       xQueueCreate(
         (mem::size_of::<T>() * SIZE) as UBaseType_t,
@@ -46,14 +47,14 @@ impl<T, const SIZE: usize> LazyInit for Queue<T, SIZE, Dynamic> {
 }
 
 impl<T, const SIZE: usize> LazyInit for Queue<T, SIZE, Static> {
+  type Storage = StaticQueue_t;
   type Handle = QueueHandle_t;
-  type Storage = (MaybeUninit<StaticQueue_t>, [MaybeUninit<T>; SIZE]);
+  type Data = [MaybeUninit<T>; SIZE];
 
-  fn init(storage: &UnsafeCell<MaybeUninit<Self::Storage>>) -> Self::Ptr {
+  fn init(data: &UnsafeCell<Self::Data>, storage: &UnsafeCell<MaybeUninit<Self::Storage>>) -> Self::Ptr {
     let handle = unsafe {
-      // SAFETY: Data only consists of `MaybeUninit`.
-      let storage = &mut *storage.get();
-      let (queue, items) = storage.assume_init_mut();
+      let items = &mut *data.get();
+      let queue = &mut *storage.get();
 
       xQueueCreateStatic(
         SIZE as UBaseType_t,
@@ -89,7 +90,7 @@ where
 
 impl<T: Sized + Send + Copy, const SIZE: usize> Queue<T, SIZE, Dynamic>
 where
-  Self: LazyInit,
+  Self: LazyInit<Data = ()>,
 {
     /// Create a new dynamic `Queue`.
     pub const fn new() -> Self {
@@ -103,7 +104,7 @@ where
 
 impl<T: Sized + Send + Copy, const SIZE: usize> Queue<T, SIZE, Static>
 where
-  Self: LazyInit,
+  Self: LazyInit<Data = [MaybeUninit<T>; SIZE]>,
 {
     /// Create a new static `Queue`.
     ///
@@ -126,7 +127,7 @@ where
       Self {
         alloc_type: PhantomData,
         item_type: PhantomData,
-        handle: LazyPtr::new(()),
+        handle: LazyPtr::new(MaybeUninit::uninit_array()),
       }
     }
 }

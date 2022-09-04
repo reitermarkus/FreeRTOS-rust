@@ -35,7 +35,7 @@ where
   Self: LazyInit,
 {
   alloc_type: PhantomData<A>,
-  handle: LazyPtr<Self, ()>,
+  handle: LazyPtr<Self>,
 }
 
 unsafe impl<'f, A> Send for Timer<'f, A>
@@ -68,6 +68,7 @@ impl Timer<'_> {
 impl<A> Timer<'static, A>
 where
   Self: LazyInit,
+  <Self as LazyInit>::Data: Sized,
 {
   /// Detach this timer from Rust's memory management. The timer will still be active and
   /// will consume the memory.
@@ -101,12 +102,12 @@ pub struct TimerMeta<'f, F> {
 }
 
 impl<'f> LazyInit for Timer<'f, Dynamic> {
-  type Storage = TimerMeta<'f, Pin<Box<Box<dyn Fn(&TimerHandle) + Send + 'f>>>>;
   type Handle = TimerHandle_t;
+  type Data = TimerMeta<'f, Pin<Box<Box<dyn Fn(&TimerHandle) + Send + 'f>>>>;
 
-  fn init(storage: &UnsafeCell<mem::MaybeUninit<Self::Storage>>) -> Self::Ptr {
-    let storage = unsafe { &mut *storage.get() };
-    let TimerMeta { name, period, auto_reload, callback } = unsafe { storage.assume_init_mut() };
+  fn init(data: &UnsafeCell<Self::Data>, _storage: &UnsafeCell<mem::MaybeUninit<Self::Storage>>) -> Self::Ptr {
+    let data = unsafe { &mut *data.get() };
+    let TimerMeta { name, period, auto_reload, callback } = data;
 
     let callback_ptr: *mut Box<dyn Fn(&TimerHandle) + Send + 'f> = &mut **callback;
 
@@ -141,12 +142,12 @@ impl<'f> LazyInit for Timer<'f, Dynamic> {
 }
 
 impl LazyInit for Timer<'static, Static> {
-  type Storage = (TimerMeta<'static, fn(&TimerHandle)>, MaybeUninit<StaticTimer_t>);
+  type Storage = StaticTimer_t;
   type Handle = TimerHandle_t;
+  type Data = TimerMeta<'static, fn(&TimerHandle)>;
 
-  fn init(storage: &UnsafeCell<mem::MaybeUninit<Self::Storage>>) -> Self::Ptr {
-    let storage = unsafe { &mut *storage.get() };
-    let (data, storage) = unsafe { storage.assume_init_mut() };
+  fn init(data: &UnsafeCell<Self::Data>, storage: &UnsafeCell<mem::MaybeUninit<Self::Storage>>) -> Self::Ptr {
+    let data = unsafe { &mut *data.get() };
     let TimerMeta { name, period, auto_reload, callback } = data;
 
     let callback: fn(&TimerHandle) = *callback;
@@ -163,6 +164,8 @@ impl LazyInit for Timer<'static, Static> {
     }
 
     let ptr = unsafe {
+      let storage = unsafe { &mut *storage.get() };
+
       xTimerCreateStatic(
         name.as_deref().map(|n| n.as_ptr()).unwrap_or(ptr::null()),
         *period,
@@ -175,6 +178,10 @@ impl LazyInit for Timer<'static, Static> {
     assert!(!ptr.is_null());
 
     unsafe { Self::Ptr::new_unchecked(ptr) }
+  }
+
+  fn cancel_init_supported() -> bool {
+    false
   }
 
   fn destroy(ptr: Self::Ptr, storage: &mut mem::MaybeUninit<Self::Storage>) {

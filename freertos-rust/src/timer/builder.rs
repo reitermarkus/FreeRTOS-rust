@@ -58,7 +58,7 @@ impl<'a> TimerBuilder<'a> {
 
     Timer {
       alloc_type: PhantomData,
-      handle: LazyPtr::new_with_storage((), meta),
+      handle: LazyPtr::new(meta),
     }
   }
 }
@@ -97,7 +97,7 @@ impl TimerBuilder<'static> {
 
     Timer {
       alloc_type: PhantomData,
-      handle: LazyPtr::new_with_storage((), (meta, MaybeUninit::uninit())),
+      handle: LazyPtr::new(meta),
     }
   }
 }

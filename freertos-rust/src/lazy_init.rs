@@ -18,8 +18,9 @@ pub trait LazyInit {
   type Handle: PtrType;
   type Storage = ();
   type Ptr = NonNull<<Self::Handle as PtrType>::Type>;
+  type Data: ?Sized = ();
 
-  fn init(storage: &UnsafeCell<MaybeUninit<Self::Storage>>) -> NonNull<<Self::Handle as PtrType>::Type>;
+  fn init(data: &UnsafeCell<Self::Data>, storage: &UnsafeCell<MaybeUninit<Self::Storage>>) -> NonNull<<Self::Handle as PtrType>::Type>;
 
   fn cancel_init_supported() -> bool {
     true
@@ -32,25 +33,26 @@ pub trait LazyInit {
   fn destroy(ptr: NonNull<<Self::Handle as PtrType>::Type>, storage: &mut MaybeUninit<Self::Storage>);
 }
 
-pub struct LazyPtr<T: ?Sized, D: ?Sized = ()>
+pub struct LazyPtr<T: ?Sized>
 where
   T: LazyInit,
 {
   storage: UnsafeCell<MaybeUninit<<T as LazyInit>::Storage>>,
   ptr: AtomicPtr<<<T as LazyInit>::Handle as PtrType>::Type>,
-  data: UnsafeCell<D>,
+  data: UnsafeCell<<T as LazyInit>::Data>,
 }
 
-impl<T: ?Sized, D> LazyPtr<T, D>
+impl<T: ?Sized> LazyPtr<T>
 where
   T: LazyInit,
+  <T as LazyInit>::Data: Sized,
 {
   #[inline]
-  pub const fn new(data: D) -> Self {
+  pub const fn new(data: <T as LazyInit>::Data) -> Self {
     unsafe { Self::new_unchecked(ptr::null_mut(), data) }
   }
 
-  pub const fn new_with_storage(data: D, storage: <T as LazyInit>::Storage) -> Self {
+  pub const fn new_with_storage(data: <T as LazyInit>::Data, storage: <T as LazyInit>::Storage) -> Self {
     Self {
       storage: UnsafeCell::new(MaybeUninit::new(storage)),
       ptr: AtomicPtr::new(ptr::null_mut()),
@@ -59,7 +61,7 @@ where
   }
 
   #[inline]
-  pub const unsafe fn new_unchecked(ptr: *mut <<T as LazyInit>::Handle as PtrType>::Type, data: D) -> Self {
+  pub const unsafe fn new_unchecked(ptr: *mut <<T as LazyInit>::Handle as PtrType>::Type, data: <T as LazyInit>::Data) -> Self {
     Self {
       storage: UnsafeCell::new(MaybeUninit::uninit()),
       ptr: AtomicPtr::new(ptr),
@@ -71,14 +73,14 @@ where
     ptr::addr_of!(self.ptr)
   }
 
-  pub fn into_data(self) -> D {
+  pub fn into_data(self) -> <T as LazyInit>::Data {
     let mut this = ManuallyDrop::new(self);
     this.deinitialize();
     unsafe { ptr::read(this.data.get()) }
   }
 }
 
-impl<T: ?Sized, D: ?Sized> LazyPtr<T, D>
+impl<T: ?Sized> LazyPtr<T>
 where
   T: LazyInit,
 {
@@ -100,7 +102,7 @@ where
       unsafe { freertos_rs_enter_critical() };
       let mut ptr = self.ptr.load(Acquire);
       if ptr.is_null() {
-        ptr = T::init(&self.storage).as_ptr();
+        ptr = T::init(&self.data, &self.storage).as_ptr();
         self.ptr.store(ptr, Release);
       }
 
@@ -108,7 +110,7 @@ where
       return ptr
     }
 
-    let new_ptr = T::init(&self.storage);
+    let new_ptr = T::init(&self.data, &self.storage);
     match self.ptr.compare_exchange(ptr::null_mut(), new_ptr.as_ptr(), AcqRel, Acquire) {
       Ok(_) => new_ptr.as_ptr(),
       Err(ptr) => {
@@ -126,7 +128,7 @@ where
   }
 }
 
-impl<T: ?Sized, D: ?Sized> Drop for LazyPtr<T, D>
+impl<T: ?Sized> Drop for LazyPtr<T>
 where
   T: LazyInit,
 {
