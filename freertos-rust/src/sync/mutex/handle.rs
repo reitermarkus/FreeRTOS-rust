@@ -1,6 +1,5 @@
 use core::fmt;
 use core::cell::UnsafeCell;
-use core::mem::MaybeUninit;
 
 use crate::shim::portMAX_DELAY;
 use crate::FreeRtosError;

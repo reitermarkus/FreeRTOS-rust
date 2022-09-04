@@ -2,7 +2,6 @@ use core::cell::UnsafeCell;
 use core::marker::PhantomData;
 use core::mem::MaybeUninit;
 use core::ops::Deref;
-use core::ptr;
 
 use crate::alloc::{Dynamic, Static};
 use crate::lazy_init::{LazyPtr, LazyInit};

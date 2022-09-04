@@ -3,7 +3,6 @@ use core::fmt;
 use core::marker::PhantomData;
 use core::mem::MaybeUninit;
 use core::ops::{Deref, DerefMut};
-use core::ptr;
 
 use crate::alloc::{Dynamic, Static};
 use crate::lazy_init::{LazyInit, LazyPtr};

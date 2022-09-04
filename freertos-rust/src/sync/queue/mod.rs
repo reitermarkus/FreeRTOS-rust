@@ -3,7 +3,6 @@ use core::marker::PhantomData;
 use core::mem::{MaybeUninit, size_of, self};
 use core::ops::Deref;
 use core::pin::Pin;
-use core::ptr;
 
 use alloc2::sync::Arc;
 

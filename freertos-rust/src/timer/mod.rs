@@ -1,24 +1,23 @@
 use core::cell::UnsafeCell;
+use core::ffi::CStr;
 use core::marker::PhantomData;
 use core::mem;
+use core::mem::MaybeUninit;
 use core::ops::Deref;
 use core::pin::Pin;
 use core::ptr;
-use core::ptr::NonNull;
 
 use alloc2::{
-  ffi::CString,
   boxed::Box,
 };
 
 use crate::alloc::Dynamic;
-use crate::error::FreeRtosError;
+use crate::alloc::Static;
 use crate::lazy_init::LazyInit;
 use crate::lazy_init::LazyPtr;
 use crate::shim::*;
 use crate::ticks::*;
 use crate::Task;
-use crate::lazy_init::PtrType;
 
 mod builder;
 pub use builder::TimerBuilder;
@@ -30,6 +29,7 @@ pub use handle::TimerHandle;
 /// Note that all operations on a timer are processed by a FreeRTOS internal task
 /// that receives messages in a queue. Every operation has an associated waiting time
 /// for that queue to get unblocked.
+#[must_use = "timer will be deleted immediately if unused"]
 pub struct Timer<'f, A = Dynamic>
 where
   Self: LazyInit,
@@ -56,42 +56,12 @@ impl Timer<'_> {
   }
 
   /// Create a new timer builder.
-  pub const fn new(period: impl Into<Ticks>) -> TimerBuilder<'static> {
+  pub const fn build() -> TimerBuilder<'static> {
     TimerBuilder {
       name: None,
-      period: period.into(),
+      period: Ticks::new(0),
       auto_reload: true,
     }
-  }
-}
-
-impl<'f> Timer<'f, Dynamic> {
-  fn spawn<F>(
-      name: Option<&str>,
-      period_tick: Ticks,
-      auto_reload: bool,
-      callback: F,
-  ) -> Result<Self, FreeRtosError>
-  where
-      F: Fn(&TimerHandle) + Send + 'f,
-  {
-    let name = match name.map(CString::new) {
-      None => None,
-      Some(Ok(name)) => Some(Pin::new(name)),
-      Some(_) => return Err(FreeRtosError::StringConversionError)
-    };
-
-    let meta = TimerMeta {
-      name,
-      period: period_tick.as_ticks(),
-      auto_reload,
-      callback: Box::pin(Box::new(callback)),
-    };
-
-    Ok(Timer {
-      alloc_type: PhantomData,
-      handle: LazyPtr::new_with_storage((), meta),
-    })
   }
 }
 
@@ -123,32 +93,32 @@ where
   }
 }
 
-extern "C" fn timer_callback(ptr: TimerHandle_t) -> () {
-  unsafe {
-    let handle = TimerHandle::from_ptr(ptr);
-
-    let callback_ptr = pvTimerGetTimerID(ptr);
-    let callback = &mut *callback_ptr.cast::<Box<dyn Fn(&TimerHandle)>>();
-    callback(handle);
-  }
-}
-
-pub struct TimerMeta<'f> {
-  name: Option<Pin<CString>>,
+pub struct TimerMeta<'f, F> {
+  name: Option<&'f CStr>,
   period: TickType_t,
   auto_reload: bool,
-  callback: Pin<Box<Box<dyn Fn(&TimerHandle) + Send + 'f>>>,
+  callback: F,
 }
 
 impl<'f> LazyInit for Timer<'f, Dynamic> {
-  type Storage = TimerMeta<'f>;
+  type Storage = TimerMeta<'f, Pin<Box<Box<dyn Fn(&TimerHandle) + Send + 'f>>>>;
   type Handle = TimerHandle_t;
 
-  fn init(storage: &UnsafeCell<mem::MaybeUninit<Self::Storage>>) -> NonNull<<Self::Handle as PtrType>::Type> {
+  fn init(storage: &UnsafeCell<mem::MaybeUninit<Self::Storage>>) -> Self::Ptr {
     let storage = unsafe { &mut *storage.get() };
     let TimerMeta { name, period, auto_reload, callback } = unsafe { storage.assume_init_mut() };
 
     let callback_ptr: *mut Box<dyn Fn(&TimerHandle) + Send + 'f> = &mut **callback;
+
+    extern "C" fn timer_callback(ptr: TimerHandle_t) -> () {
+      unsafe {
+        let handle = TimerHandle::from_ptr(ptr);
+
+        let callback_ptr = pvTimerGetTimerID(ptr);
+        let callback: &mut Box<dyn Fn(&TimerHandle)> = &mut *callback_ptr.cast();
+        callback(handle);
+      }
+    }
 
     let ptr = unsafe {
       xTimerCreate(
@@ -164,8 +134,51 @@ impl<'f> LazyInit for Timer<'f, Dynamic> {
     unsafe { Self::Ptr::new_unchecked(ptr) }
   }
 
-  fn destroy(ptr: NonNull<<Self::Handle as PtrType>::Type>, storage: &mut mem::MaybeUninit<Self::Storage>) {
+  fn destroy(ptr: Self::Ptr, storage: &mut mem::MaybeUninit<Self::Storage>) {
       unsafe { xTimerDelete(ptr.as_ptr(), portMAX_DELAY) };
       unsafe { storage.assume_init_drop() };
+  }
+}
+
+impl LazyInit for Timer<'static, Static> {
+  type Storage = (TimerMeta<'static, fn(&TimerHandle)>, MaybeUninit<StaticTimer_t>);
+  type Handle = TimerHandle_t;
+
+  fn init(storage: &UnsafeCell<mem::MaybeUninit<Self::Storage>>) -> Self::Ptr {
+    let storage = unsafe { &mut *storage.get() };
+    let (data, storage) = unsafe { storage.assume_init_mut() };
+    let TimerMeta { name, period, auto_reload, callback } = data;
+
+    let callback: fn(&TimerHandle) = *callback;
+    let callback_ptr = callback as *mut _;
+
+    extern "C" fn timer_callback(ptr: TimerHandle_t) -> () {
+      unsafe {
+        let handle = TimerHandle::from_ptr(ptr);
+
+        let callback_ptr = pvTimerGetTimerID(ptr);
+        let callback: fn(&TimerHandle) = mem::transmute(callback_ptr);
+        callback(handle);
+      }
+    }
+
+    let ptr = unsafe {
+      xTimerCreateStatic(
+        name.as_deref().map(|n| n.as_ptr()).unwrap_or(ptr::null()),
+        *period,
+        if *auto_reload { pdTRUE } else { pdFALSE } as _,
+        callback_ptr,
+        Some(timer_callback),
+        storage.as_mut_ptr(),
+      )
+    };
+    assert!(!ptr.is_null());
+
+    unsafe { Self::Ptr::new_unchecked(ptr) }
+  }
+
+  fn destroy(ptr: Self::Ptr, storage: &mut mem::MaybeUninit<Self::Storage>) {
+    unsafe { xTimerDelete(ptr.as_ptr(), portMAX_DELAY) };
+    unsafe { storage.assume_init_drop() };
   }
 }

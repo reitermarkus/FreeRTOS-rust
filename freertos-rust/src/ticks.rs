@@ -30,13 +30,13 @@ impl Ticks {
   }
 }
 
-impl From<TickType_t> for Ticks {
+impl const From<TickType_t> for Ticks {
   fn from(ticks: TickType_t) -> Self {
     Self { ticks }
   }
 }
 
-impl From<Duration> for Ticks {
+impl const From<Duration> for Ticks {
   fn from(duration: Duration) -> Self {
     let ticks = duration.as_millis() / portTICK_PERIOD_MS as u128;
     Self::new(ticks.try_into().unwrap_or(portMAX_DELAY))
