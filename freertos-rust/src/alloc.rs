@@ -1,8 +1,10 @@
 use core::marker::PhantomPinned;
 
+/// Marker type for dynamically allocated types.
 #[non_exhaustive]
 pub struct Dynamic {}
 
+/// Marker type for statically allocated types.
 #[non_exhaustive]
 pub struct Static {
   _pinned: PhantomPinned,
