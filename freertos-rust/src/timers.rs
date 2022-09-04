@@ -1,10 +1,10 @@
 use core::mem;
+use core::ptr;
 use core::ptr::NonNull;
 
 use alloc2::{
   ffi::CString,
   boxed::Box,
-  string::String,
 };
 
 use crate::error::FreeRtosError;
@@ -27,47 +27,50 @@ pub struct Timer {
     detached: bool,
 }
 
-/// Helper builder for a new software timer.
-pub struct TimerBuilder {
-    name: String,
+/// Helper struct for creating a new [`Timer`].
+pub struct TimerBuilder<'a> {
+    name: Option<&'a str>,
     period: Ticks,
     auto_reload: bool,
 }
 
-impl TimerBuilder {
-    /// Set the name of the timer.
-    pub fn set_name(&mut self, name: &str) -> &mut Self {
-        self.name = name.into();
-        self
+impl TimerBuilder<'_> {
+  /// Set the name of the timer.
+  pub const fn name<'a>(mut self, name: &'a str) -> TimerBuilder<'a> {
+    TimerBuilder {
+      name: Some(name),
+      period: self.period,
+      auto_reload: self.auto_reload,
     }
+  }
 
-    /// Set the period of the timer.
-    pub fn set_period(&mut self, period: impl Into<Ticks>) -> &mut Self {
-        self.period = period.into();
-        self
-    }
+  /// Set the period of the timer.
+  pub const fn period(mut self, period: impl Into<Ticks>) -> Self {
+    self.period = period.into();
+    self
+  }
 
-    /// Should the timer be automatically reloaded?
-    pub fn set_auto_reload(&mut self, auto_reload: bool) -> &mut Self {
-        self.auto_reload = auto_reload;
-        self
-    }
+  /// Should the timer be automatically reloaded?
+  pub const fn auto_reload(mut self, auto_reload: bool) -> Self {
+    self.auto_reload = auto_reload;
+    self
+  }
 
-    /// Try to create the new timer.
-    ///
-    /// Note that the newly created timer must be started.
-    pub fn create<F>(&self, callback: F) -> Result<Timer, FreeRtosError>
-    where
-        F: Fn(Timer) -> (),
-        F: Send + 'static,
-    {
-        Timer::spawn(
-            self.name.as_str(),
-            self.period,
-            self.auto_reload,
-            callback,
-        )
-    }
+  /// Create the [`Timer`].
+  ///
+  /// Note that the newly created timer must be started.
+  pub fn create<F>(&self, callback: F) -> Result<Timer, FreeRtosError>
+  where
+    F: Fn(Timer) -> (),
+    F: Send + 'static,
+  {
+    Timer::spawn(
+      self.name,
+      self.period,
+      self.auto_reload,
+      callback,
+    )
+  }
 }
 
 impl Timer {
@@ -75,12 +78,12 @@ impl Timer {
     pub const STACK_SIZE: u16 = configTIMER_TASK_STACK_DEPTH;
 
     /// Create a new timer builder.
-    pub fn new(period: impl Into<Ticks>) -> TimerBuilder {
-        TimerBuilder {
-            name: "timer".into(),
-            period: period.into(),
-            auto_reload: true,
-        }
+    pub const fn new(period: impl Into<Ticks>) -> TimerBuilder<'static> {
+      TimerBuilder {
+        name: None,
+        period: period.into(),
+        auto_reload: true,
+      }
     }
 
     /// Create a timer from a raw handle.
@@ -97,15 +100,15 @@ impl Timer {
     }
 
     unsafe fn spawn_inner<'a>(
-        name: &str,
+        name: Option<&str>,
         period_ticks: TickType_t,
         auto_reload: bool,
         callback: Box<dyn Fn(Timer) + Send + 'a>,
     ) -> Result<Timer, FreeRtosError> {
-        let name = if let Ok(name) = CString::new(name) {
-          name.into_boxed_c_str()
-        } else {
-          return Err(FreeRtosError::StringConversionError)
+        let name = match name.map(CString::new) {
+            None => None,
+            Some(Ok(name)) => Some(name.into_boxed_c_str()),
+            Some(_) => return Err(FreeRtosError::StringConversionError)
         };
 
         let f = Box::new(callback);
@@ -128,7 +131,7 @@ impl Timer {
 
         let timer_handle = unsafe {
           xTimerCreate(
-            name.as_ptr(),
+            name.as_ref().map(|n| n.as_ptr()).unwrap_or(ptr::null()),
             period_ticks,
             if auto_reload { pdTRUE } else { pdFALSE } as _,
             param_ptr,
@@ -148,7 +151,7 @@ impl Timer {
     }
 
     fn spawn<F>(
-        name: &str,
+        name: Option<&str>,
         period_tick: Ticks,
         auto_reload: bool,
         callback: F,

@@ -62,6 +62,7 @@
 #![feature(const_pin)]
 #![feature(associated_type_defaults)]
 #![feature(const_mut_refs)]
+#![feature(const_convert)]
 
 #[cfg_attr(any(feature = "time", feature = "sync"), macro_use)]
 extern crate alloc as alloc2;
