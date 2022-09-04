@@ -94,7 +94,7 @@ impl Task {
             unsafe {
                 // NOTE: New scope so that everything is dropped before the task is deleted.
                 {
-                    let mut current_task = CurrentTask;
+                    let mut current_task = CurrentTask::new();
                     let b = Box::from_raw(param as *mut Box<dyn FnOnce(&mut CurrentTask)>);
                     b(&mut current_task);
                 }

@@ -164,7 +164,7 @@ impl LazyInit for Timer<'static, Static> {
     }
 
     let ptr = unsafe {
-      let storage = unsafe { &mut *storage.get() };
+      let storage = &mut *storage.get();
 
       xTimerCreateStatic(
         name.as_deref().map(|n| n.as_ptr()).unwrap_or(ptr::null()),
