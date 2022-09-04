@@ -2,6 +2,7 @@ use core::cell::UnsafeCell;
 use core::marker::PhantomData;
 use core::mem::MaybeUninit;
 use core::ops::Deref;
+use core::ptr;
 
 use crate::alloc::{Dynamic, Static};
 use crate::lazy_init::{LazyPtr, LazyInit};
@@ -25,8 +26,8 @@ pub struct Semaphore<T, A = Dynamic>
 where
   Self: LazyInit,
 {
-    handle: LazyPtr<Self>,
-    _alloc_type: PhantomData<A>,
+  alloc_type: PhantomData<A>,
+  handle: LazyPtr<Self>,
 }
 
 macro_rules! impl_semaphore {
@@ -40,19 +41,19 @@ macro_rules! impl_semaphore {
   ) => {
     impl<$(const $max: $max_ty, const $initial: $initial_ty,)*> Semaphore<$semaphore$(<$max, $initial>)*, Dynamic>
     where
-      Self: LazyInit,
+      Self: LazyInit<Data = ()>,
     {
       #[doc = concat!("Create a new dynamic ", stringify!($variant_name), " semaphore.")]
       pub const fn $new_fn() -> Self {
         $(assert!($initial <= $max);)*
 
-        Self { handle: LazyPtr::new(), _alloc_type: PhantomData }
+        Self { alloc_type: PhantomData, handle: LazyPtr::new(()) }
       }
     }
 
     impl<$(const $max: $max_ty, const $initial: $initial_ty,)*> Semaphore<$semaphore$(<$max, $initial>)*, Static>
     where
-      Self: LazyInit,
+      Self: LazyInit<Data = ()>,
     {
       #[doc = concat!("Create a new static ", stringify!($variant_name), " semaphore.")]
       ///
@@ -70,7 +71,7 @@ macro_rules! impl_semaphore {
       pub const unsafe fn $new_fn_static() -> Self {
         $(assert!($initial <= $max);)*
 
-        Self { handle: LazyPtr::new(), _alloc_type: PhantomData }
+        Self { alloc_type: PhantomData, handle: LazyPtr::new(()) }
       }
     }
 
@@ -88,25 +89,25 @@ macro_rules! impl_semaphore {
     impl$(<const $max: $max_ty, const $initial: $initial_ty>)* LazyInit for Semaphore<$semaphore$(<$max, $initial>)*, Dynamic> {
       type Handle = SemaphoreHandle_t;
 
-      fn init(_data: &UnsafeCell<MaybeUninit<()>>) -> Self::Ptr {
+      fn init(_storage: &UnsafeCell<MaybeUninit<()>>) -> Self::Ptr {
         let ptr = unsafe { $create($($max, $initial)*) };
         assert!(!ptr.is_null());
         unsafe { Self::Ptr::new_unchecked(ptr) }
       }
 
-      fn destroy(ptr: Self::Ptr) {
+      fn destroy(ptr: Self::Ptr, _storage: &mut MaybeUninit<Self::Storage>) {
         unsafe { vSemaphoreDelete(ptr.as_ptr()) }
       }
     }
 
     impl$(<const $max: $max_ty, const $initial: $initial_ty>)* LazyInit for Semaphore<$semaphore$(<$max, $initial>)*, Static> {
       type Handle = SemaphoreHandle_t;
-      type Data = StaticSemaphore_t;
+      type Storage = StaticSemaphore_t;
 
-      fn init(data: &UnsafeCell<MaybeUninit<Self::Data>>) -> Self::Ptr {
+      fn init(storage: &UnsafeCell<MaybeUninit<Self::Storage>>) -> Self::Ptr {
         unsafe {
-          let data = &mut *data.get();
-          let ptr = $create_static($($max, $initial,)* data.as_mut_ptr());
+          let storage = &mut *storage.get();
+          let ptr = $create_static($($max, $initial,)* storage.as_mut_ptr());
           assert!(!ptr.is_null());
           Self::Ptr::new_unchecked(ptr)
         }
@@ -116,8 +117,10 @@ macro_rules! impl_semaphore {
         false
       }
 
-      fn destroy(ptr: Self::Ptr) {
-        drop(ptr)
+      fn destroy(_ptr: Self::Ptr, storage: &mut MaybeUninit<Self::Storage>) {
+        unsafe {
+          ptr::drop_in_place(storage.as_mut_ptr());
+        }
       }
     }
   };

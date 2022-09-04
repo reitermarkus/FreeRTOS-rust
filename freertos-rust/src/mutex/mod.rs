@@ -3,22 +3,21 @@ use core::fmt;
 use core::marker::PhantomData;
 use core::mem::MaybeUninit;
 use core::ops::{Deref, DerefMut};
-use core::time::Duration;
-use core::pin::Pin;
+use core::ptr;
 
 use crate::alloc::{Dynamic, Static};
-use crate::error::FreeRtosError;
 use crate::lazy_init::{LazyInit, LazyPtr};
 use crate::shim::*;
-use crate::ticks::*;
-use crate::semaphore::SemaphoreHandle;
+
+mod handle;
+pub use handle::{MutexHandle, RecursiveMutexHandle};
 
 macro_rules! guard_impl_deref_mut {
   (MutexGuard) => {
     impl<T: ?Sized> DerefMut for MutexGuard<'_, T> {
       /// Mutably dereferences the locked value.
       fn deref_mut(&mut self) -> &mut T {
-          unsafe { &mut *self.data.get() }
+        unsafe { self.handle.data_mut() }
       }
     }
   };
@@ -30,41 +29,14 @@ macro_rules! guard_deref_mut_doc {
   ($guard:ident) => { "" };
 }
 
-macro_rules! impl_inner {
-  ($take:ident, $guard:ident, $self_ty:ty $(, $get_ref:ident)?) => {
-    /// Lock the pinned mutex.
-    #[inline]
-    pub fn lock(self: $self_ty) -> Result<$guard<'_, T>, FreeRtosError> {
-      self.timed_lock(Duration::MAX)
-    }
-
-    /// Try locking the pinned mutex and return immediately.
-    #[inline]
-    pub fn try_lock(self: $self_ty) -> Result<$guard<'_, T>, FreeRtosError> {
-      self.timed_lock(Duration::ZERO)
-    }
-
-    /// Try locking the pinned mutex until the given `timeout`.
-    pub fn timed_lock(self: $self_ty, timeout: impl Into<Ticks>) -> Result<$guard<'_, T>, FreeRtosError> {
-      let this = self$(.$get_ref())*;
-
-      let handle = unsafe { SemaphoreHandle::from_ptr(this.handle.as_ptr()) };
-      handle.$take(timeout)?;
-
-      Ok($guard { handle, data: &this.data })
-    }
-  };
-}
-
 macro_rules! impl_mutex {
   (
     $(#[$attr:meta])*
     $mutex:ident,
+    $handle:ident,
     $guard:ident,
     $create:ident,
     $create_static:ident,
-    $take:ident,
-    $give:ident,
     $variant_name:expr,
   ) => {
     $(#[$attr])*
@@ -72,15 +44,15 @@ macro_rules! impl_mutex {
     where
       Self: LazyInit,
     {
+      alloc_type: PhantomData<A>,
       handle: LazyPtr<Self>,
-      _alloc_type: PhantomData<A>,
-      data: UnsafeCell<T>,
     }
 
     impl<T: ?Sized> LazyInit for $mutex<T, Dynamic> {
       type Handle = SemaphoreHandle_t;
+      type Data = T;
 
-      fn init(_data: &UnsafeCell<MaybeUninit<Self::Data>>) -> Self::Ptr {
+      fn init(_storage: &UnsafeCell<MaybeUninit<Self::Storage>>) -> Self::Ptr {
         unsafe {
           let ptr = $create();
           assert!(!ptr.is_null());
@@ -89,19 +61,20 @@ macro_rules! impl_mutex {
       }
 
       #[inline]
-      fn destroy(ptr: Self::Ptr) {
+      fn destroy(ptr: Self::Ptr, _storage: &mut MaybeUninit<Self::Storage>) {
         unsafe { vSemaphoreDelete(ptr.as_ptr()) }
       }
     }
 
     impl<T: ?Sized> LazyInit for $mutex<T, Static> {
+      type Storage = StaticSemaphore_t;
       type Handle = SemaphoreHandle_t;
-      type Data = StaticSemaphore_t;
+      type Data = T;
 
-      fn init(data: &UnsafeCell<MaybeUninit<Self::Data>>) -> Self::Ptr {
+      fn init(storage: &UnsafeCell<MaybeUninit<Self::Storage>>) -> Self::Ptr {
         unsafe {
-          let data = &mut *data.get();
-          let ptr = $create_static(data.as_mut_ptr());
+          let storage = &mut *storage.get();
+          let ptr = $create_static(storage.as_mut_ptr());
           assert!(!ptr.is_null());
           Self::Ptr::new_unchecked(ptr)
         }
@@ -112,8 +85,10 @@ macro_rules! impl_mutex {
       }
 
       #[inline]
-      fn destroy(ptr: Self::Ptr) {
-        drop(ptr)
+      fn destroy(_ptr: Self::Ptr, storage: &mut MaybeUninit<Self::Storage>) {
+        unsafe {
+          ptr::drop_in_place(storage.as_mut_ptr());
+        }
       }
     }
 
@@ -126,39 +101,84 @@ macro_rules! impl_mutex {
       Self: LazyInit,
     {}
 
-    impl<T, A> $mutex<T, A>
+    impl<T> $mutex<T, Dynamic>
     where
-      Self: LazyInit,
+      Self: LazyInit<Data = T>,
     {
-      #[doc = concat!("Create a new `", stringify!($mutex), "` with the given inner value.")]
-      pub const fn new(t: T) -> Self {
+      #[doc = concat!("Create a new dynamic `", stringify!($mutex), "` with the given inner value.")]
+      pub const fn new(data: T) -> Self {
         Self {
-          handle: LazyPtr::new(),
-          _alloc_type: PhantomData,
-          data: UnsafeCell::new(t),
+          alloc_type: PhantomData,
+          handle: LazyPtr::new(data),
         }
       }
     }
 
-    impl<T, A> $mutex<T, A>
-    where
-      Self: LazyInit,
-    {
-      /// Consume the mutex and return its inner value.
-      pub fn into_inner(self) -> T {
-        self.data.into_inner()
+    impl $mutex<(), Dynamic> {
+      pub const unsafe fn from_ptr(ptr: SemaphoreHandle_t) -> Self {
+        Self {
+          alloc_type: PhantomData,
+          handle: unsafe { LazyPtr::new_unchecked(ptr, ()) },
+        }
       }
     }
 
-    impl<T: ?Sized> $mutex<T, Dynamic> {
-      impl_inner!($take, $guard, &Self);
+    impl<T> $mutex<T, Static>
+    where
+      Self: LazyInit<Data = T>,
+    {
+      #[doc = concat!("Create a new static `", stringify!($mutex), "` with the given inner value.")]
+      /// Create a new static queue.
+      ///
+      /// # Safety
+      ///
+      /// The returned mutex must be pinned before using it.
+      ///
+      /// # Examples
+      ///
+      /// ```
+      /// use freertos_rust::pin_static;
+      ///
+      /// pin_static!(pub static MUTEX = Mutex::<u32>::new_static(123));
+      /// ```
+      pub const unsafe fn new_static(data: T) -> Self {
+        Self {
+          alloc_type: PhantomData,
+          handle: LazyPtr::new(data),
+        }
+      }
     }
 
-    impl<T: ?Sized> $mutex<T, Static> {
-      impl_inner!($take, $guard, Pin<&Self>, get_ref);
+
+    impl<T, A> $mutex<T, A>
+    where
+      Self: LazyInit<Data = T>,
+    {
+      /// Consume the mutex and return its inner value.
+      pub fn into_inner(self) -> T {
+        self.handle.into_data()
+      }
     }
 
-    impl<T: ?Sized + fmt::Debug> fmt::Debug for $mutex<T> {
+    impl<T, A> Deref for $mutex<T, A>
+    where
+      Self: LazyInit<Data = T>,
+    {
+      type Target = $handle<T>;
+
+      fn deref(&self) -> &Self::Target {
+        unsafe {
+          let storage = ptr::addr_of!(self.handle).cast::<<Self as LazyInit>::Storage>();
+          let handle = storage.add(1).cast::<Self::Target>();
+          &*handle
+        }
+      }
+    }
+
+    impl<T: fmt::Debug> fmt::Debug for $mutex<T>
+    where
+      Self: LazyInit<Data = T>,
+    {
       fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let mut d = f.debug_struct(stringify!($mutex));
 
@@ -186,8 +206,7 @@ macro_rules! impl_mutex {
     //                       and cause Futures to not implement `Send`"]
     #[clippy::has_significant_drop]
     pub struct $guard<'m, T: ?Sized> {
-      handle: &'m SemaphoreHandle,
-      data: &'m UnsafeCell<T>,
+      handle: &'m $handle<T>,
     }
 
     unsafe impl<T: ?Sized + Sync> Sync for $guard<'_, T> {}
@@ -198,7 +217,8 @@ macro_rules! impl_mutex {
       /// Dereferences the locked value.
       #[inline]
       fn deref(&self) -> &T {
-        unsafe { &*self.data.get() }
+        // SAFETY: Mutex is locked.
+        unsafe { self.handle.data() }
       }
     }
 
@@ -208,7 +228,7 @@ macro_rules! impl_mutex {
       /// Unlocks the mutex.
       #[inline]
       fn drop(&mut self) {
-        let _ = self.handle.$give();
+        let _ = self.handle.give();
       }
     }
   };
@@ -217,11 +237,10 @@ macro_rules! impl_mutex {
 impl_mutex!(
   /// A mutual exclusion primitive useful for protecting shared data.
   Mutex,
+  MutexHandle,
   MutexGuard,
   xSemaphoreCreateMutex,
   xSemaphoreCreateMutexStatic,
-  take,
-  give,
   "",
 );
 
@@ -231,10 +250,9 @@ impl_mutex!(
   /// [`RecursiveMutexGuard`] does not give mutable references to the contained data,
   /// use a [`RefCell`](core::cell::RefCell) if you need this.
   RecursiveMutex,
+  RecursiveMutexHandle,
   RecursiveMutexGuard,
   xSemaphoreCreateRecursiveMutex,
   xSemaphoreCreateRecursiveMutexStatic,
-  take_recursive,
-  give_recursive,
   "recursive",
 );

@@ -3,6 +3,7 @@ use core::marker::PhantomData;
 use core::mem::{MaybeUninit, size_of, self};
 use core::ops::Deref;
 use core::pin::Pin;
+use core::ptr;
 
 use alloc2::sync::Arc;
 
@@ -21,14 +22,15 @@ pub struct Queue<T, const SIZE: usize, A = Dynamic>
 where
   Self: LazyInit,
 {
-  handle: LazyPtr<Self>,
+  alloc_type: PhantomData<A>,
   item_type: PhantomData<T>,
+  handle: LazyPtr<Self>,
 }
 
 impl<T, const SIZE: usize> LazyInit for Queue<T, SIZE, Dynamic> {
   type Handle = QueueHandle_t;
 
-  fn init(_data: &UnsafeCell<MaybeUninit<Self::Data>>) -> Self::Ptr {
+  fn init(_storage: &UnsafeCell<MaybeUninit<Self::Storage>>) -> Self::Ptr {
     let handle = unsafe {
       xQueueCreate(
         (mem::size_of::<T>() * SIZE) as UBaseType_t,
@@ -39,20 +41,20 @@ impl<T, const SIZE: usize> LazyInit for Queue<T, SIZE, Dynamic> {
     unsafe { Self::Ptr::new_unchecked(handle) }
   }
 
-  fn destroy(ptr: Self::Ptr) {
+  fn destroy(ptr: Self::Ptr, _storage: &mut MaybeUninit<Self::Storage>) {
     unsafe { vQueueDelete(ptr.as_ptr()) }
   }
 }
 
 impl<T, const SIZE: usize> LazyInit for Queue<T, SIZE, Static> {
   type Handle = QueueHandle_t;
-  type Data = (MaybeUninit<StaticQueue_t>, [MaybeUninit<T>; SIZE]);
+  type Storage = (MaybeUninit<StaticQueue_t>, [MaybeUninit<T>; SIZE]);
 
-  fn init(data: &UnsafeCell<MaybeUninit<Self::Data>>) -> Self::Ptr {
+  fn init(storage: &UnsafeCell<MaybeUninit<Self::Storage>>) -> Self::Ptr {
     let handle = unsafe {
       // SAFETY: Data only consists of `MaybeUninit`.
-      let data = &mut *data.get();
-      let (queue, items) = data.assume_init_mut();
+      let storage = &mut *storage.get();
+      let (queue, items) = storage.assume_init_mut();
 
       xQueueCreateStatic(
         SIZE as UBaseType_t,
@@ -69,8 +71,10 @@ impl<T, const SIZE: usize> LazyInit for Queue<T, SIZE, Static> {
     false
   }
 
-  fn destroy(ptr: Self::Ptr) {
-    unsafe { vQueueDelete(ptr.as_ptr()) }
+  fn destroy(_ptr: Self::Ptr, storage: &mut MaybeUninit<Self::Storage>) {
+    unsafe {
+      ptr::drop_in_place(storage.as_mut_ptr());
+    }
   }
 }
 
@@ -85,19 +89,23 @@ where
 
 impl<T: Sized + Send + Copy, const SIZE: usize> Queue<T, SIZE, Dynamic>
 where
-  Self: LazyInit,
+  Self: LazyInit<Data = ()>,
 {
-    /// Create a new dynamic queue.
+    /// Create a new dynamic `Queue`.
     pub const fn new() -> Self {
-      Self { handle: LazyPtr::new(), item_type: PhantomData }
+      Self {
+        alloc_type: PhantomData,
+        item_type: PhantomData,
+        handle: LazyPtr::new(())
+      }
     }
 }
 
 impl<T: Sized + Send + Copy, const SIZE: usize> Queue<T, SIZE, Static>
 where
-  Self: LazyInit,
+  Self: LazyInit<Data = ()>,
 {
-    /// Create a new static queue.
+    /// Create a new static `Queue`.
     ///
     /// # Safety
     ///
@@ -111,7 +119,7 @@ where
     /// pin_static!(pub static QUEUE = Queue::<8>::new_static());
     /// ```
     pub const unsafe fn new_static() -> Self {
-      Self { handle: LazyPtr::new(), item_type: PhantomData }
+      Self { alloc_type: PhantomData, item_type: PhantomData, handle: LazyPtr::new(()) }
     }
 }
 
