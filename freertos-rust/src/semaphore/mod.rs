@@ -117,8 +117,9 @@ macro_rules! impl_semaphore {
         false
       }
 
-      fn destroy(_ptr: Self::Ptr, storage: &mut MaybeUninit<Self::Storage>) {
+      fn destroy(ptr: Self::Ptr, storage: &mut MaybeUninit<Self::Storage>) {
         unsafe {
+          vSemaphoreDelete(ptr.as_ptr());
           ptr::drop_in_place(storage.as_mut_ptr());
         }
       }

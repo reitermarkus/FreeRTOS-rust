@@ -71,8 +71,9 @@ impl<T, const SIZE: usize> LazyInit for Queue<T, SIZE, Static> {
     false
   }
 
-  fn destroy(_ptr: Self::Ptr, storage: &mut MaybeUninit<Self::Storage>) {
+  fn destroy(ptr: Self::Ptr, storage: &mut MaybeUninit<Self::Storage>) {
     unsafe {
+      vQueueDelete(ptr.as_ptr());
       ptr::drop_in_place(storage.as_mut_ptr());
     }
   }
