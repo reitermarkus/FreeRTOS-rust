@@ -113,15 +113,6 @@ macro_rules! impl_mutex {
       }
     }
 
-    impl $mutex<(), Dynamic> {
-      pub const unsafe fn from_ptr(ptr: SemaphoreHandle_t) -> Self {
-        Self {
-          alloc_type: PhantomData,
-          handle: unsafe { LazyPtr::new_unchecked(ptr, ()) },
-        }
-      }
-    }
-
     impl<T> $mutex<T, Static>
     where
       Self: LazyInit,

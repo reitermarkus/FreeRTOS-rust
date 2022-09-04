@@ -1,5 +1,6 @@
 use core::fmt;
 use core::cell::UnsafeCell;
+use core::mem::MaybeUninit;
 
 use crate::shim::portMAX_DELAY;
 use crate::FreeRtosError;
@@ -21,7 +22,7 @@ macro_rules! impl_mutex_handle {
     /// See [`Semaphore`](crate::Semaphore) for the preferred owned version.
     ///
     /// This type is compatible with a raw FreeRTOS mutex if `T` is zero-sized.
-    pub struct $handle<T: ?Sized> {
+    pub struct $handle<T: ?Sized = ()> {
       // TODO: Assert, same layout as `AtomicPtr<<SemaphoreHandle_t as PtrType>::Type>`.
       ptr: SemaphoreHandle_t,
       data: UnsafeCell<T>,
@@ -30,6 +31,22 @@ macro_rules! impl_mutex_handle {
     impl<T: ?Sized> fmt::Debug for $handle<T> {
       fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.as_ptr().fmt(f)
+      }
+    }
+
+    impl $handle {
+      #[doc = concat!("Create a a `", stringify!($handle), "` from a raw handle.")]
+      ///
+      /// # Safety
+      ///
+      /// - `ptr` must point to a valid queue.
+      /// - `T` must be zero-sized.
+      #[doc = concat!("- The mutex must not be deleted for the lifetime of the returned `" , stringify!($handle), "`.")]
+      pub const unsafe fn from_ptr(ptr: SemaphoreHandle_t) -> Self {
+        Self {
+          ptr,
+          data: UnsafeCell::new(()),
+        }
       }
     }
 
