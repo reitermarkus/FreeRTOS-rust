@@ -71,9 +71,6 @@ mod error;
 mod shim;
 pub mod ffi;
 
-#[cfg(feature = "alloc")]
-mod allocator;
-
 pub mod alloc;
 
 #[cfg(feature = "critical_section")]
@@ -106,8 +103,6 @@ pub mod patterns;
 pub use crate::error::*;
 // ----------
 
-#[cfg(feature = "alloc")]
-pub use crate::allocator::*;
 pub use crate::error::FreeRtosError;
 #[cfg(feature = "time")]
 pub use crate::delay::*;
