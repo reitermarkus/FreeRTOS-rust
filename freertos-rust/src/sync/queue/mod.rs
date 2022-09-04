@@ -110,17 +110,25 @@ where
     ///
     /// # Safety
     ///
-    /// The returned queue must be pinned before using it.
+    /// The returned mutex must be [pinned](core::pin) before using it.
     ///
     /// # Examples
     ///
     /// ```
-    /// use freertos_rust::pin_static;
+    /// use core::pin::Pin;
+    /// use freertos_rust::sync::Queue;
     ///
-    /// pin_static!(pub static QUEUE = Queue::<8>::new_static());
+    /// // SAFETY: Assignment to a `static` ensures the queue will never move.
+    /// pub static QUEUE: Queue<u32, 8, Static> = unsafe {
+    ///   Pin::new_unchecked(Queue::new_static())
+    /// };
     /// ```
     pub const unsafe fn new_static() -> Self {
-      Self { alloc_type: PhantomData, item_type: PhantomData, handle: LazyPtr::new(()) }
+      Self {
+        alloc_type: PhantomData,
+        item_type: PhantomData,
+        handle: LazyPtr::new(()),
+      }
     }
 }
 

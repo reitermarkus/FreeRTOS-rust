@@ -133,14 +133,18 @@ macro_rules! impl_mutex {
       ///
       /// # Safety
       ///
-      /// The returned mutex must be pinned before using it.
+      /// The returned mutex must be [pinned](core::pin) before using it.
       ///
       /// # Examples
       ///
       /// ```
-      /// use freertos_rust::pin_static;
+      /// use core::pin::Pin;
+      /// use freertos_rust::sync::Mutex;
       ///
-      /// pin_static!(pub static MUTEX = Mutex::<u32>::new_static(123));
+      /// // SAFETY: Assignment to a `static` ensures the semaphore will never move.
+      #[doc = concat!("pub static MUTEX: ", stringify!($mutex), "<u32> = unsafe {")]
+      #[doc = concat!("  Pin::new_unchecked(", stringify!($mutex), "::new_static(123))")]
+      /// }
       /// ```
       pub const unsafe fn new_static(data: T) -> Self {
         Self {
@@ -175,7 +179,7 @@ macro_rules! impl_mutex {
       }
     }
 
-    impl<T: fmt::Debug> fmt::Debug for $mutex<T>
+    impl<T: fmt::Debug, A> fmt::Debug for $mutex<T, A>
     where
       Self: LazyInit<Data = T>,
     {

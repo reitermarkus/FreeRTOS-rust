@@ -59,14 +59,18 @@ macro_rules! impl_semaphore {
       ///
       /// # Safety
       ///
-      /// The returned semaphore must be pinned before using it.
+      /// The returned mutex must be [pinned](core::pin) before using it.
       ///
       /// # Examples
       ///
       /// ```
-      /// use freertos_rust::pin_static;
+      /// use core::pin::Pin;
+      /// use freertos_rust::sync::Semaphore;
       ///
-      #[doc = concat!("pin_static!(pub static SEMAPHORE = Semaphore::<", stringify!($semaphore), ">::", stringify!($new_fn_static), "());")]
+      /// // SAFETY: Assignment to a `static` ensures the semaphore will never move.
+      #[doc = concat!("pub static SEMAPHORE: Pin<Semaphore<", stringify!($semaphore), ", Static>> = unsafe {")]
+      #[doc = concat!("  Pin::new_unchecked(Semaphore::", stringify!($new_fn_static), "())")]
+      /// };
       /// ```
       pub const unsafe fn $new_fn_static() -> Self {
         $(assert!($initial <= $max);)*
