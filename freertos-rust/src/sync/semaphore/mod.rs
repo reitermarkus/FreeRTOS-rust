@@ -41,7 +41,7 @@ macro_rules! impl_semaphore {
   ) => {
     impl<$(const $max: $max_ty, const $initial: $initial_ty,)*> Semaphore<$semaphore$(<$max, $initial>)*, Dynamic>
     where
-      Self: LazyInit<Data = ()>,
+      Self: LazyInit,
     {
       #[doc = concat!("Create a new dynamic ", stringify!($variant_name), " semaphore.")]
       pub const fn $new_fn() -> Self {
@@ -53,7 +53,7 @@ macro_rules! impl_semaphore {
 
     impl<$(const $max: $max_ty, const $initial: $initial_ty,)*> Semaphore<$semaphore$(<$max, $initial>)*, Static>
     where
-      Self: LazyInit<Data = ()>,
+      Self: LazyInit,
     {
       #[doc = concat!("Create a new static ", stringify!($variant_name), " semaphore.")]
       ///

@@ -18,7 +18,6 @@ pub trait LazyInit {
   type Handle: PtrType;
   type Storage = ();
   type Ptr = NonNull<<Self::Handle as PtrType>::Type>;
-  type Data: ?Sized = ();
 
   fn init(storage: &UnsafeCell<MaybeUninit<Self::Storage>>) -> NonNull<<Self::Handle as PtrType>::Type>;
 
@@ -33,18 +32,18 @@ pub trait LazyInit {
   fn destroy(ptr: NonNull<<Self::Handle as PtrType>::Type>, storage: &mut MaybeUninit<Self::Storage>);
 }
 
-pub struct LazyPtr<T: ?Sized>
+pub struct LazyPtr<T: ?Sized, D: ?Sized = ()>
 where
   T: LazyInit,
 {
   storage: UnsafeCell<MaybeUninit<<T as LazyInit>::Storage>>,
   ptr: AtomicPtr<<<T as LazyInit>::Handle as PtrType>::Type>,
-  data: UnsafeCell<<T as LazyInit>::Data>,
+  data: UnsafeCell<D>,
 }
 
-impl<T: ?Sized, D> LazyPtr<T>
+impl<T: ?Sized, D> LazyPtr<T, D>
 where
-  T: LazyInit<Data = D>,
+  T: LazyInit,
 {
   #[inline]
   pub const fn new(data: D) -> Self {
@@ -71,7 +70,7 @@ where
   }
 }
 
-impl<T: ?Sized> LazyPtr<T>
+impl<T: ?Sized, D: ?Sized> LazyPtr<T, D>
 where
   T: LazyInit,
 {
@@ -119,7 +118,7 @@ where
   }
 }
 
-impl<T: ?Sized> Drop for LazyPtr<T>
+impl<T: ?Sized, D: ?Sized> Drop for LazyPtr<T, D>
 where
   T: LazyInit,
 {

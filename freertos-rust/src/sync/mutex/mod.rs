@@ -45,12 +45,11 @@ macro_rules! impl_mutex {
       Self: LazyInit,
     {
       alloc_type: PhantomData<A>,
-      handle: LazyPtr<Self>,
+      handle: LazyPtr<Self, T>,
     }
 
     impl<T: ?Sized> LazyInit for $mutex<T, Dynamic> {
       type Handle = SemaphoreHandle_t;
-      type Data = T;
 
       fn init(_storage: &UnsafeCell<MaybeUninit<Self::Storage>>) -> Self::Ptr {
         unsafe {
@@ -69,7 +68,6 @@ macro_rules! impl_mutex {
     impl<T: ?Sized> LazyInit for $mutex<T, Static> {
       type Storage = StaticSemaphore_t;
       type Handle = SemaphoreHandle_t;
-      type Data = T;
 
       fn init(storage: &UnsafeCell<MaybeUninit<Self::Storage>>) -> Self::Ptr {
         unsafe {
@@ -104,7 +102,7 @@ macro_rules! impl_mutex {
 
     impl<T> $mutex<T, Dynamic>
     where
-      Self: LazyInit<Data = T>,
+      Self: LazyInit,
     {
       #[doc = concat!("Create a new dynamic `", stringify!($mutex), "` with the given inner value.")]
       pub const fn new(data: T) -> Self {
@@ -126,7 +124,7 @@ macro_rules! impl_mutex {
 
     impl<T> $mutex<T, Static>
     where
-      Self: LazyInit<Data = T>,
+      Self: LazyInit,
     {
       #[doc = concat!("Create a new static `", stringify!($mutex), "` with the given inner value.")]
       /// Create a new static queue.
@@ -157,7 +155,7 @@ macro_rules! impl_mutex {
 
     impl<T, A> $mutex<T, A>
     where
-      Self: LazyInit<Data = T>,
+      Self: LazyInit,
     {
       /// Consume the mutex and return its inner value.
       pub fn into_inner(self) -> T {
@@ -167,7 +165,7 @@ macro_rules! impl_mutex {
 
     impl<T, A> Deref for $mutex<T, A>
     where
-      Self: LazyInit<Data = T>,
+      Self: LazyInit,
     {
       type Target = $handle<T>;
 
@@ -181,7 +179,7 @@ macro_rules! impl_mutex {
 
     impl<T: fmt::Debug, A> fmt::Debug for $mutex<T, A>
     where
-      Self: LazyInit<Data = T>,
+      Self: LazyInit,
     {
       fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let mut d = f.debug_struct(stringify!($mutex));

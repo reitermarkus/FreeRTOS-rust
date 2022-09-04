@@ -24,7 +24,7 @@ where
 {
   alloc_type: PhantomData<A>,
   item_type: PhantomData<T>,
-  handle: LazyPtr<Self>,
+  handle: LazyPtr<Self, ()>,
 }
 
 impl<T, const SIZE: usize> LazyInit for Queue<T, SIZE, Dynamic> {
@@ -90,7 +90,7 @@ where
 
 impl<T: Sized + Send + Copy, const SIZE: usize> Queue<T, SIZE, Dynamic>
 where
-  Self: LazyInit<Data = ()>,
+  Self: LazyInit,
 {
     /// Create a new dynamic `Queue`.
     pub const fn new() -> Self {
@@ -104,7 +104,7 @@ where
 
 impl<T: Sized + Send + Copy, const SIZE: usize> Queue<T, SIZE, Static>
 where
-  Self: LazyInit<Data = ()>,
+  Self: LazyInit,
 {
     /// Create a new static `Queue`.
     ///
