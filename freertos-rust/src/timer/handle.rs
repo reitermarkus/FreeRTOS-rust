@@ -44,12 +44,14 @@ impl TimerHandle {
 
   /// Get the timer's name if is has one.
   #[inline]
-  pub fn name(&self) -> Option<&str> {
-    match unsafe { pcTimerGetName(self.as_ptr()) } {
-      name if !name.is_null() => {
-        Some(unsafe { CStr::from_ptr(name).to_str().unwrap() })
-      },
-      _ => None,
+  pub fn name(&self) -> Option<&CStr> {
+    unsafe {
+      let timer_name = pcTimerGetName(self.as_ptr());
+      if timer_name.is_null() {
+        None
+      } else {
+        Some(CStr::from_ptr(timer_name))
+      }
     }
   }
 

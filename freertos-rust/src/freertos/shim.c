@@ -84,6 +84,19 @@ void freertos_rs_yield_from_isr(BaseType_t x) {
 	portYIELD_FROM_ISR(x);
 }
 
+#ifndef configTASK_NOTIFICATION_ARRAY_ENTRIES
+#define configTASK_NOTIFICATION_ARRAY_ENTRIES 1
+
+BaseType_t freertos_rs_task_notify_indexed(TaskHandle_t task, UBaseType_t index, uint32_t value, eNotifyAction eAction) {
+  (void)index;
+	return xTaskNotify(task, value, eAction);
+}
+
+BaseType_t freertos_rs_task_notify_indexed_from_isr(TaskHandle_t task, UBaseType_t index, uint32_t value, eNotifyAction eAction, BaseType_t* xHigherPriorityTaskWoken) {
+  (void)index;
+	return xTaskNotifyFromISR(task, value, eAction, xHigherPriorityTaskWoken);
+}
+#else
 BaseType_t freertos_rs_task_notify_indexed(TaskHandle_t task, UBaseType_t index, uint32_t value, eNotifyAction eAction) {
 	return xTaskNotifyIndexed(task, index, value, eAction);
 }
@@ -91,6 +104,7 @@ BaseType_t freertos_rs_task_notify_indexed(TaskHandle_t task, UBaseType_t index,
 BaseType_t freertos_rs_task_notify_indexed_from_isr(TaskHandle_t task, UBaseType_t index, uint32_t value, eNotifyAction eAction, BaseType_t* xHigherPriorityTaskWoken) {
 	return xTaskNotifyIndexedFromISR(task, index, value, eAction, xHigherPriorityTaskWoken);
 }
+#endif
 
 void freertos_rs_enter_critical() {
 	taskENTER_CRITICAL();

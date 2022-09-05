@@ -23,7 +23,7 @@ pub enum TaskNotification {
   ///
   /// # Errors
   ///
-  /// This will fail if the task already has pending notifications,
+  /// This will fail if the task already has pending notifications.
   SetValue(u32),
 }
 

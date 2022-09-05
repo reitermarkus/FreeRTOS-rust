@@ -6,24 +6,20 @@ use core::ops::Deref;
 use core::pin::Pin;
 use core::ptr;
 
-use alloc2::{
-  boxed::Box,
-};
+use alloc2::boxed::Box;
 
-use crate::alloc::Dynamic;
-use crate::alloc::Static;
-use crate::lazy_init::LazyInit;
-use crate::lazy_init::LazyPtr;
+use crate::alloc::{Dynamic, Static};
+use crate::lazy_init::{LazyInit, LazyPtr};
 use crate::shim::*;
-use crate::ticks::*;
-use crate::Task;
+use crate::ticks::Ticks;
+use crate::task::TaskHandle;
 
 mod builder;
 pub use builder::TimerBuilder;
 mod handle;
 pub use handle::TimerHandle;
 
-/// A FreeRTOS software timer.
+/// A software timer.
 ///
 /// Note that all operations on a timer are processed by a FreeRTOS internal task
 /// that receives messages in a queue. Every operation has an associated waiting time
@@ -50,8 +46,9 @@ impl Timer<'_> {
   /// Stack size of the timer task.
   pub const STACK_SIZE: u16 = configTIMER_TASK_STACK_DEPTH;
 
-  pub fn daemon_task() -> Task {
-    unsafe { Task::from_raw_handle(xTimerGetTimerDaemonTaskHandle()) }
+  #[inline]
+  pub fn daemon_task() -> &'static TaskHandle {
+    unsafe { TaskHandle::from_ptr(xTimerGetTimerDaemonTaskHandle()) }
   }
 
   /// Create a new timer builder.

@@ -5,16 +5,16 @@ use alloc2::{
   vec::Vec,
 };
 
-use crate::shim::{
+use crate::{shim::{
   UBaseType_t,
   configMAX_TASK_NAME_LEN,
-};
+}, TaskHandle};
 
-use super::{Task, TaskPriority, TaskState, TaskName};
+use super::{TaskPriority, TaskState, TaskName};
 
 #[derive(Debug)]
 pub struct TaskStatus {
-  pub(crate) handle: Task,
+  pub(crate) handle: &'static TaskHandle,
   pub(crate) name: TaskName<{ configMAX_TASK_NAME_LEN as usize }>,
   pub(crate) number: UBaseType_t,
   pub(crate) state: TaskState,
@@ -27,7 +27,7 @@ pub struct TaskStatus {
 impl TaskStatus {
   /// Get the task.
   #[inline]
-  pub fn task(&self) -> &Task {
+  pub fn task(&self) -> &TaskHandle {
     &self.handle
   }
 
