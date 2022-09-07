@@ -1,3 +1,5 @@
+use core::fmt::Debug;
+
 use alloc2::{
   sync::Arc,
 };
@@ -47,7 +49,7 @@ impl ComputeTaskBuilder for TaskBuilder<'_> {
         };
 
         Ok(ComputeTask {
-            task: task,
+            task,
             result: result,
             status: status,
             finished: false,
@@ -101,8 +103,6 @@ pub struct ComputeTask<R, const SIZE: usize> {
 enum ComputeTaskStatus {
     Finished,
 }
-
-use core::fmt::Debug;
 
 impl<R: Debug, const SIZE: usize> ComputeTask<R, SIZE> {
     /// Get the handle of the task that computes the result.

@@ -48,6 +48,7 @@ macro_rules! impl_mutex {
     }
 
     impl<T: ?Sized> LazyInit for $mutex<T, Dynamic> {
+      type Storage = ();
       type Handle = SemaphoreHandle_t;
       type Data = T;
 

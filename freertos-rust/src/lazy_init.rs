@@ -16,7 +16,7 @@ impl<T> PtrType for *mut T {
 
 pub trait LazyInit {
   type Handle: PtrType;
-  type Storage = ();
+  type Storage;
   type Ptr = NonNull<<Self::Handle as PtrType>::Type>;
   type Data: ?Sized = ();
 

@@ -1,26 +1,26 @@
 use core::ffi::CStr;
 use core::marker::PhantomData;
-use core::pin::Pin;
 
-use alloc2::boxed::Box;
+use alloc2::{boxed::Box};
 
 use crate::Ticks;
 use crate::alloc::Dynamic;
 use crate::alloc::Static;
+use crate::lazy_init::LazyInit;
 use crate::lazy_init::LazyPtr;
 
 use super::{Timer, TimerMeta, TimerHandle};
 
 /// Helper struct for creating a new [`Timer`].
-pub struct TimerBuilder<'a> {
-  pub(super) name: Option<&'a CStr>,
+pub struct TimerBuilder<'n> {
+  pub(super) name: Option<&'n CStr>,
   pub(super) period: Ticks,
   pub(super) auto_reload: bool,
 }
 
-impl<'a> TimerBuilder<'a> {
+impl<'n> TimerBuilder<'n> {
   /// Set the name of the timer.
-  pub const fn name<'b>(self, name: &'b CStr) -> TimerBuilder<'b> {
+  pub const fn name<'a>(self, name: &'a CStr) -> TimerBuilder<'a> {
     TimerBuilder {
       name: Some(name),
       period: self.period,
@@ -43,12 +43,13 @@ impl<'a> TimerBuilder<'a> {
   /// Create the dynamic [`Timer`].
   ///
   /// Note that the newly created timer must be started.
+  #[must_use]
   pub fn create<'f, F>(self, callback: F) -> Timer<'f, Dynamic>
   where
     F: Fn(&TimerHandle) + Send + 'f,
-    'a: 'f,
+    'n: 'f,
   {
-    let meta: TimerMeta<Pin<Box<Box<dyn Fn(&TimerHandle) + Send + 'f>>>> = TimerMeta {
+    let meta: <Timer<'f, Dynamic> as LazyInit>::Data = TimerMeta {
       name: self.name,
       period: self.period.as_ticks(),
       auto_reload: self.auto_reload,
@@ -86,6 +87,7 @@ impl TimerBuilder<'static> {
   ///   Pin::new_unchecked(Timer::new(Ticks::new(200).create_static(my_timer_callback)))
   /// };
   /// ```
+  #[must_use]
   pub const unsafe fn create_static(self, callback: fn(&TimerHandle)) -> Timer<'static, Static> {
     let meta = TimerMeta {
       name: self.name,

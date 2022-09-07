@@ -1,16 +1,11 @@
 use core::{
   ffi::c_void,
-  ptr::{self, NonNull}, ops::Deref,
+  ptr,
+  ops::Deref, cell::UnsafeCell,
+  mem::{self, MaybeUninit}, sync::atomic::{AtomicPtr, Ordering},
 };
 
-#[cfg(feature = "alloc")]
-use alloc2::{
-  boxed::Box,
-};
-
-use crate::error::*;
 use crate::shim::*;
-use crate::lazy_init::PtrType;
 
 mod builder;
 pub use builder::TaskBuilder;
@@ -33,54 +28,85 @@ pub use state::TaskState;
 mod system_state;
 pub use system_state::{SystemState, TaskStatus};
 
-/// Handle for a FreeRTOS task
-#[derive(Debug, Clone)]
-pub struct Task {
-    handle: NonNull<<TaskHandle_t as PtrType>::Type>,
+
+/// Minimal task stack size.
+pub const MINIMAL_STACK_SIZE: u16 = configMINIMAL_STACK_SIZE;
+
+
+pub struct StaticTaskBuilder {
+  name: &'static str,
+  priority: TaskPriority,
 }
 
-unsafe impl Send for Task {}
-
-impl Task {
-  /// Minimal task stack size.
-  pub const MINIMAL_STACK_SIZE: u16 = configMINIMAL_STACK_SIZE;
-
-  /// Prepare a builder object for the new task.
-  pub const fn new() -> TaskBuilder<'static> {
-    TaskBuilder::new()
+impl StaticTaskBuilder {
+  /// Set the task name.
+  pub const fn name(mut self, name: &'static str) -> Self {
+    self.name = name;
+    self
   }
 
-  pub fn idle_task() -> &'static TaskHandle {
-    unsafe { TaskHandle::from_ptr(xTaskGetIdleTaskHandle()) }
+  /// Set the task priority.
+  pub const fn priority(mut self, priority: TaskPriority) -> Self {
+    self.priority = priority;
+    self
   }
 
-  pub(crate) fn spawn<F>(
-    name: &str,
-    stack_size: u16,
-    priority: TaskPriority,
-    f: F,
-  ) -> Result<Task, FreeRtosError>
-  where
-    F: FnOnce(&mut CurrentTask) + Send + 'static,
-  {
-    unsafe {
-      Task::spawn_inner(Box::new(f), name, stack_size, priority)
+  /// Create the [`StaticTask`].
+  ///
+  /// The returned `StaticTask` needs to be assigned to a `static` variable in order to be started.
+  pub const fn create<const STACK_SIZE: usize>(self, f: fn(&mut CurrentTask)) -> StaticTask<STACK_SIZE> {
+    StaticTask {
+      name: self.name,
+      priority: self.priority,
+      task: UnsafeCell::new(MaybeUninit::uninit()),
+      stack: UnsafeCell::new(MaybeUninit::uninit_array()),
+      f: AtomicPtr::new(f as *mut _),
     }
   }
+}
 
-  unsafe fn spawn_inner<'a>(
-    f: Box<dyn FnOnce(&mut CurrentTask)>,
-    name: &str,
-    stack_size: u16,
-    priority: TaskPriority,
-  ) -> Result<Task, FreeRtosError> {
+/// A statically allocated task.
+pub struct StaticTask<const STACK_SIZE: usize = 0> {
+  name: &'static str,
+  priority: TaskPriority,
+  task: UnsafeCell<MaybeUninit<StaticTask_t>>,
+  stack: UnsafeCell<[MaybeUninit<StackType_t>; STACK_SIZE]>,
+  // Invariant: If `f` is null, the task is started and `task` is initialized.
+  f: AtomicPtr<c_void>,
+}
+
+unsafe impl<const STACK_SIZE: usize> Send for StaticTask<STACK_SIZE> {}
+unsafe impl<const STACK_SIZE: usize> Sync for StaticTask<STACK_SIZE> {}
+
+impl StaticTask {
+  pub const fn new() -> StaticTaskBuilder {
+    StaticTaskBuilder {
+      name: "",
+      priority: unsafe { TaskPriority::new_unchecked(1) },
+    }
+  }
+}
+
+impl<const STACK_SIZE: usize> StaticTask<STACK_SIZE> {
+  /// Start the task.
+  pub fn start(&'static self) -> &'static TaskHandle {
+    let function_ptr = self.f.load(Ordering::Acquire);
+    if function_ptr.is_null() {
+      return unsafe { TaskHandle::from_ptr((&mut *self.task.get()).as_mut_ptr().cast()) }
+    }
+
+    self.start_inner()
+  }
+
+  #[cold]
+  fn start_inner(&'static self) -> &'static TaskHandle {
     extern "C" fn task_function(param: *mut c_void) {
       unsafe {
         // NOTE: New scope so that everything is dropped before the task is deleted.
         {
           let mut current_task = CurrentTask::new_unchecked();
-          let b = Box::from_raw(param as *mut Box<dyn FnOnce(&mut CurrentTask)>);
-          b(&mut current_task);
+          let function: fn(&mut CurrentTask) = mem::transmute(param);
+          function(&mut current_task);
         }
 
         vTaskDelete(ptr::null_mut());
@@ -88,33 +114,58 @@ impl Task {
       }
     }
 
-      let task_name = TaskName::<{ configMAX_TASK_NAME_LEN as usize }>::new(name);
+    unsafe {
+      freertos_rs_enter_critical();
 
-      let param = Box::into_raw(Box::new(f));
+      let mut function_ptr = &mut *ptr::addr_of!(self.f).cast_mut();
+      let function_ptr = function_ptr.get_mut();
 
-      let mut task_handle = ptr::null_mut();
-
-      let ret = unsafe {
-        xTaskCreate(
-          Some(task_function),
-          task_name.as_ptr().cast(),
-          stack_size,
-          param.cast(),
-          priority.to_freertos(),
-          &mut task_handle,
-        )
-      };
-
-      match (ret, NonNull::new(task_handle)) {
-        (pdPASS, Some(handle)) if !task_handle.is_null() => {
-          Ok(Task { handle })
-        },
-        (errCOULD_NOT_ALLOCATE_REQUIRED_MEMORY, None) => {
-          drop(Box::from_raw(param));
-          Err(FreeRtosError::OutOfMemory)
-        },
-        _ => unreachable!(),
+      if function_ptr.is_null() {
+        freertos_rs_exit_critical();
+        return TaskHandle::from_ptr((&mut *self.task.get()).as_mut_ptr().cast())
       }
+
+      let name = TaskName::<{ configMAX_TASK_NAME_LEN as usize }>::new(self.name);
+      let task = &mut *self.task.get();
+      let stack = &mut *self.stack.get();
+
+      let ptr = xTaskCreateStatic(
+        Some(task_function),
+        name.as_ptr(),
+        STACK_SIZE as _,
+        *function_ptr,
+        self.priority.to_freertos(),
+        MaybeUninit::slice_as_mut_ptr(stack),
+        task.as_mut_ptr(),
+      );
+      debug_assert!(!ptr.is_null());
+
+      *function_ptr = ptr::null_mut();
+
+      freertos_rs_exit_critical();
+
+      TaskHandle::from_ptr(ptr)
+    }
+  }
+}
+
+/// A task.
+pub struct Task {
+  ptr: TaskHandle_t,
+}
+
+unsafe impl Send for Task {}
+unsafe impl Sync for Task {}
+
+impl Task {
+  /// Prepare a builder object for the new task.
+  pub const fn new() -> TaskBuilder<'static> {
+    TaskBuilder::new()
+  }
+
+  /// Get the handle for the idle task.
+  pub fn idle_task() -> &'static TaskHandle {
+    unsafe { TaskHandle::from_ptr(xTaskGetIdleTaskHandle()) }
   }
 }
 
@@ -122,7 +173,6 @@ impl Deref for Task {
   type Target = TaskHandle;
 
   fn deref(&self) -> &Self::Target {
-    let handle = self.handle.as_ptr();
-    unsafe { TaskHandle::from_ptr(handle) }
+    unsafe { TaskHandle::from_ptr(self.ptr) }
   }
 }

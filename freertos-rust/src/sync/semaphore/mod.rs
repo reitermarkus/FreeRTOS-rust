@@ -92,6 +92,7 @@ macro_rules! impl_semaphore {
     }
 
     impl$(<const $max: $max_ty, const $initial: $initial_ty>)* LazyInit for Semaphore<$semaphore$(<$max, $initial>)*, Dynamic> {
+      type Storage = ();
       type Handle = SemaphoreHandle_t;
       type Data = ();
 

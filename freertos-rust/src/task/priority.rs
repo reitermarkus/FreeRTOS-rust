@@ -24,7 +24,7 @@ impl TaskPriority {
   }
 
   /// Create a new `TaskPriority` without checking whether it is valid.
-  pub unsafe fn new_unchecked(priority: u8) -> Self {
+  pub const unsafe fn new_unchecked(priority: u8) -> Self {
     Self { priority }
   }
 

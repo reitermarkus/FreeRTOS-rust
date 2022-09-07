@@ -1,7 +1,7 @@
 use core::cell::UnsafeCell;
 use core::ffi::CStr;
 use core::marker::PhantomData;
-use core::mem;
+use core::mem::{self, MaybeUninit};
 use core::ops::Deref;
 use core::pin::Pin;
 use core::ptr;
@@ -98,10 +98,11 @@ pub struct TimerMeta<'f, F> {
 }
 
 impl<'f> LazyInit for Timer<'f, Dynamic> {
+  type Storage = ();
   type Handle = TimerHandle_t;
   type Data = TimerMeta<'f, Pin<Box<Box<dyn Fn(&TimerHandle) + Send + 'f>>>>;
 
-  fn init(data: &UnsafeCell<Self::Data>, _storage: &UnsafeCell<mem::MaybeUninit<Self::Storage>>) -> Self::Ptr {
+  fn init(data: &UnsafeCell<Self::Data>, _storage: &UnsafeCell<MaybeUninit<Self::Storage>>) -> Self::Ptr {
     let data = unsafe { &mut *data.get() };
     let TimerMeta { name, period, auto_reload, callback } = data;
 
@@ -131,7 +132,7 @@ impl<'f> LazyInit for Timer<'f, Dynamic> {
     unsafe { Self::Ptr::new_unchecked(ptr) }
   }
 
-  fn destroy(ptr: Self::Ptr, storage: &mut mem::MaybeUninit<Self::Storage>) {
+  fn destroy(ptr: Self::Ptr, storage: &mut MaybeUninit<Self::Storage>) {
       unsafe { xTimerDelete(ptr.as_ptr(), portMAX_DELAY) };
       unsafe { storage.assume_init_drop() };
   }
@@ -142,7 +143,7 @@ impl LazyInit for Timer<'static, Static> {
   type Handle = TimerHandle_t;
   type Data = TimerMeta<'static, fn(&TimerHandle)>;
 
-  fn init(data: &UnsafeCell<Self::Data>, storage: &UnsafeCell<mem::MaybeUninit<Self::Storage>>) -> Self::Ptr {
+  fn init(data: &UnsafeCell<Self::Data>, storage: &UnsafeCell<MaybeUninit<Self::Storage>>) -> Self::Ptr {
     let data = unsafe { &mut *data.get() };
     let TimerMeta { name, period, auto_reload, callback } = data;
 
@@ -180,7 +181,7 @@ impl LazyInit for Timer<'static, Static> {
     false
   }
 
-  fn destroy(ptr: Self::Ptr, storage: &mut mem::MaybeUninit<Self::Storage>) {
+  fn destroy(ptr: Self::Ptr, storage: &mut MaybeUninit<Self::Storage>) {
     unsafe { xTimerDelete(ptr.as_ptr(), portMAX_DELAY) };
     unsafe { storage.assume_init_drop() };
   }

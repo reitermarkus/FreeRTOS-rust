@@ -1,5 +1,4 @@
-use core::ffi::CStr;
-use core::{fmt, ptr};
+use core::{ffi::CStr, str, fmt, ptr};
 
 use crate::FreeRtosError;
 use crate::InterruptContext;
@@ -47,14 +46,16 @@ impl TaskHandle {
   }
 
   /// Get the name of this task.
-  pub fn name(&self) -> Option<&CStr> {
+  pub fn name(&self) -> &str {
     unsafe {
       let task_name = pcTaskGetName(self.as_ptr());
-      if task_name.is_null() {
-        None
-      } else {
-        Some(CStr::from_ptr(task_name))
-      }
+      task_name.as_ref()
+      .map(|n| CStr::from_ptr(n))
+      .map(|n| match n.to_str() {
+        Ok(n) => n,
+        Err(err) => str::from_utf8_unchecked(&n.to_bytes()[..err.valid_up_to()]),
+      })
+      .unwrap_or_default()
     }
   }
 

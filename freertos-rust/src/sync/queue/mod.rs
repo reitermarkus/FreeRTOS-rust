@@ -27,6 +27,7 @@ where
 }
 
 impl<T, const SIZE: usize> LazyInit for Queue<T, SIZE, Dynamic> {
+  type Storage = ();
   type Handle = QueueHandle_t;
   type Data = ();
 
