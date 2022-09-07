@@ -11,6 +11,4 @@ pub enum FreeRtosError {
   QueueFull,
   /// Task does not exist.
   TaskNotFound,
-  InvalidQueueSize,
-  ProcessorHasShutDown,
 }

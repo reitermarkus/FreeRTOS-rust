@@ -66,10 +66,6 @@ pub use crate::timer::*;
 mod ticks;
 mod utils;
 
-#[cfg(feature = "sync")]
-#[allow(missing_docs)]
-pub mod patterns;
-
 pub use crate::error::*;
 
 pub use crate::error::FreeRtosError;
