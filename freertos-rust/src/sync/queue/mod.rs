@@ -2,7 +2,6 @@ use core::cell::UnsafeCell;
 use core::marker::PhantomData;
 use core::mem::{MaybeUninit, size_of, self};
 use core::ops::Deref;
-use core::pin::Pin;
 
 use alloc2::sync::Arc;
 
@@ -111,17 +110,16 @@ where
     ///
     /// # Safety
     ///
-    /// The returned mutex must be [pinned](core::pin) before using it.
+    /// The returned queue must have a `'static` lifetime.
     ///
     /// # Examples
     ///
     /// ```
-    /// use core::pin::Pin;
-    /// use freertos_rust::sync::Queue;
+    /// use freertos_rust::{alloc::Static, sync::Queue};
     ///
-    /// // SAFETY: Assignment to a `static` ensures the queue will never move.
-    /// pub static QUEUE: Queue<u32, 8, Static> = unsafe {
-    ///   Pin::new_unchecked(Queue::new_static())
+    /// // SAFETY: Assignment to a `static` ensures a `'static` lifetime.
+    /// static QUEUE: Queue<u32, 8, Static> = unsafe {
+    ///   Queue::new_static()
     /// };
     /// ```
     pub const unsafe fn new_static() -> Self {
@@ -161,7 +159,7 @@ where
   Self: LazyInit<Handle = QueueHandle_t>,
 {
     /// Create a sender/receiver pair from this queue.
-    pub fn split(self: Pin<&Self>) -> (Sender<&Self>, Receiver<&Self>) {
+    pub fn split(&'static self) -> (Sender<&'static Self>, Receiver<&'static Self>) {
       let queue = self.get_ref();
       (Sender { queue }, Receiver { queue })
     }

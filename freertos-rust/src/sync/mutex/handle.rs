@@ -59,6 +59,7 @@ macro_rules! impl_mutex_handle {
       /// # Safety
       ///
       /// - The mutex must be locked.
+      #[inline]
       pub(super) const unsafe fn data(&self) -> &T {
         &*self.data.get()
       }
@@ -69,6 +70,7 @@ macro_rules! impl_mutex_handle {
       ///
       /// - The mutex must be locked non-recursively.
       #[allow(unused)]
+      #[inline]
       pub(super) const unsafe fn data_mut(&self) -> &mut T {
         &mut *self.data.get()
       }
@@ -87,22 +89,20 @@ macro_rules! impl_mutex_handle {
       pub(super) fn give(&self) -> Result<(), FreeRtosError> {
         self.handle().$give()
       }
-    }
 
-    impl<T: ?Sized> $handle<T> {
-      /// Lock the pinned mutex.
+      /// Lock the mutex.
       #[inline]
       pub fn lock(&self) -> Result<$guard<'_, T>, FreeRtosError> {
         self.timed_lock(Ticks::new(portMAX_DELAY))
       }
 
-      /// Try locking the pinned mutex and return immediately.
+      /// Try locking the mutex and return immediately.
       #[inline(always)]
       pub fn try_lock(&self) -> Result<$guard<'_, T>, FreeRtosError> {
         self.timed_lock(Ticks::new(0))
       }
 
-      /// Try locking the pinned mutex until the given `timeout`.
+      /// Try locking the mutex until the given `timeout`.
       pub fn timed_lock(&self, timeout: impl Into<Ticks>) -> Result<$guard<'_, T>, FreeRtosError> {
         self.take(timeout)?;
         Ok($guard { handle: self })

@@ -78,21 +78,20 @@ impl TaskBuilder<'static> {
   ///
   /// # Safety
   ///
-  /// The returned task must be [pinned](core::pin) before using it.
+  /// The returned task must have a `'static` lifetime.
   ///
   /// # Examples
   ///
   /// ```
-  /// use core::pin::Pin;
   /// use freertos_rust::{alloc::Static, task::{Task, CurrentTask}};
   ///
   /// fn my_task(task: &mut CurrentTask) {
   ///   // ...
   /// }
   ///
-  /// // SAFETY: Assignment to a `static` ensures the timer will never move.
-  /// pub static TASK: Pin<Task<Static, 1337>> = unsafe {
-  ///   Pin::new_unchecked(Task::new().create_static(my_task))
+  /// // SAFETY: Assignment to a `static` ensures a `'static` lifetime.
+  /// static TASK: Task<Static, 1337> = unsafe {
+  ///   Task::new().create_static(my_task)
   /// };
   ///
   /// TASK.start();

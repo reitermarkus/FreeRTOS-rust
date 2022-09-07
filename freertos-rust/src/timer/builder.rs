@@ -70,21 +70,20 @@ impl TimerBuilder<'static> {
   ///
   /// # Safety
   ///
-  /// The returned timer must be [pinned](core::pin) before using it.
+  /// The returned timer must have a `'static` lifetime.
   ///
   /// # Examples
   ///
   /// ```
-  /// use core::pin::Pin;
-  /// use freertos_rust::timer::Timer;
+  /// use freertos_rust::{alloc::Static, timer::Timer};
   ///
   /// fn my_timer_callback(timer: &TimerHandle) {
   ///   // ...
   /// }
   ///
-  /// // SAFETY: Assignment to a `static` ensures the timer will never move.
-  /// pub static TIMER: Pin<Timer<Static>> = unsafe {
-  ///   Pin::new_unchecked(Timer::new().period(Ticks::new(200).create_static(my_timer_callback)))
+  /// // SAFETY: Assignment to a `static` ensures a `'static` lifetime.
+  /// static TIMER: Timer<Static> = unsafe {
+  ///   Timer::new().period(200).create_static(my_timer_callback)
   /// };
   /// ```
   #[must_use]

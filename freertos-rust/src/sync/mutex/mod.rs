@@ -124,17 +124,16 @@ macro_rules! impl_mutex {
       ///
       /// # Safety
       ///
-      /// The returned mutex must be [pinned](core::pin) before using it.
+      /// The returned mutex must have a `'static` lifetime.
       ///
       /// # Examples
       ///
       /// ```
-      /// use core::pin::Pin;
-      /// use freertos_rust::sync::Mutex;
+      /// use freertos_rust::{alloc::Static, sync::Mutex};
       ///
-      /// // SAFETY: Assignment to a `static` ensures the semaphore will never move.
-      #[doc = concat!("pub static MUTEX: ", stringify!($mutex), "<u32> = unsafe {")]
-      #[doc = concat!("  Pin::new_unchecked(", stringify!($mutex), "::new_static(123))")]
+      /// // SAFETY: Assignment to a `static` ensures a `'static` lifetime.
+      #[doc = concat!("static MUTEX: ", stringify!($mutex), "<u32, Static> = unsafe {")]
+      #[doc = concat!("  ", stringify!($mutex), "::new_static(123)")]
       /// }
       /// ```
       pub const unsafe fn new_static(data: T) -> Self {
