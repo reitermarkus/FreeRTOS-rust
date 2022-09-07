@@ -36,5 +36,5 @@ critical-section = { version = "1.0", optional = true }
 embedded-hal = "0.2"
 
 [build-dependencies]
-freertos-cargo-build = { path = "../freertos-cargo-build" }
+freertos-cargo-build = { version = "0.1", path = "../freertos-cargo-build" }
 bindgen = "0.60.1"
