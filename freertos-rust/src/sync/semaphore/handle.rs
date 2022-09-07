@@ -5,11 +5,11 @@ use crate::{
   InterruptContext,
   Ticks,
   lazy_init::PtrType,
+  ffi::SemaphoreHandle_t,
   shim::{
     errQUEUE_FULL,
     pdFALSE,
     pdTRUE,
-    SemaphoreHandle_t,
     xSemaphoreGive,
     xSemaphoreGiveFromISR,
     xSemaphoreGiveRecursive,
@@ -82,7 +82,7 @@ impl SemaphoreHandle {
   /// Decrement the semaphore.
   #[inline]
   pub fn take(&self, timeout: impl Into<Ticks>) -> Result<(), FreeRtosError> {
-    match unsafe { xSemaphoreTake(self.as_ptr(), timeout.into().as_ticks()) } {
+    match unsafe { xSemaphoreTake(self.as_ptr(), timeout.into().into()) } {
       pdTRUE => Ok(()),
       pdFALSE => Err(FreeRtosError::Timeout),
       _ => unreachable!(),
@@ -92,7 +92,7 @@ impl SemaphoreHandle {
   /// Lock the mutex recursively.
   #[inline]
   pub(crate) fn take_recursive(&self, timeout: impl Into<Ticks>) -> Result<(), FreeRtosError> {
-    match unsafe { xSemaphoreTakeRecursive(self.as_ptr(), timeout.into().as_ticks()) } {
+    match unsafe { xSemaphoreTakeRecursive(self.as_ptr(), timeout.into().into()) } {
       pdTRUE => Ok(()),
       pdFALSE => Err(FreeRtosError::Timeout),
       _ => unreachable!(),

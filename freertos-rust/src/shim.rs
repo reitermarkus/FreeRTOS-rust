@@ -4,6 +4,7 @@ use core::mem::MaybeUninit;
 
 mod bindings {
   #![allow(unused)]
+  #![allow(missing_docs)]
 
   include!(concat!(env!("OUT_DIR"), "/shim.rs"));
 }

@@ -11,7 +11,7 @@ use crate::lazy_init::LazyPtr;
 
 use super::{Timer, TimerMeta, TimerHandle};
 
-/// Helper struct for creating a new [`Timer`].
+/// Helper struct for creating a new timer returned by [`Timer::new`].
 pub struct TimerBuilder<'n> {
   pub(super) name: Option<&'n CStr>,
   pub(super) period: Ticks,
@@ -51,7 +51,7 @@ impl<'n> TimerBuilder<'n> {
   {
     let meta: <Timer<'f, Dynamic> as LazyInit>::Data = TimerMeta {
       name: self.name,
-      period: self.period.as_ticks(),
+      period: self.period.into(),
       auto_reload: self.auto_reload,
       callback: Box::pin(Box::new(callback)),
     };
@@ -90,7 +90,7 @@ impl TimerBuilder<'static> {
   pub const unsafe fn create_static(self, callback: fn(&TimerHandle)) -> Timer<'static, Static> {
     let meta = TimerMeta {
       name: self.name,
-      period: self.period.as_ticks(),
+      period: self.period.into(),
       auto_reload: self.auto_reload,
       callback,
     };

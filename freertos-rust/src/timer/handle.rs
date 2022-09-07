@@ -64,7 +64,7 @@ impl TimerHandle {
   /// Start the timer.
   #[inline]
   pub fn start(&self, timeout: impl Into<Ticks>) -> Result<(), FreeRtosError> {
-    match unsafe { xTimerStart(self.as_ptr(), timeout.into().as_ticks()) } {
+    match unsafe { xTimerStart(self.as_ptr(), timeout.into().into()) } {
       pdPASS => Ok(()),
       _ => Err(FreeRtosError::Timeout),
     }
@@ -82,7 +82,7 @@ impl TimerHandle {
   /// Stop the timer.
   #[inline]
   pub fn stop(&self, timeout: impl Into<Ticks>) -> Result<(), FreeRtosError> {
-    match unsafe { xTimerStop(self.as_ptr(), timeout.into().as_ticks()) } {
+    match unsafe { xTimerStop(self.as_ptr(), timeout.into().into()) } {
       pdPASS => Ok(()),
       _ => Err(FreeRtosError::Timeout),
     }
@@ -112,8 +112,8 @@ impl TimerHandle {
     match unsafe {
       xTimerChangePeriod(
         self.as_ptr(),
-        new_period.into().as_ticks(),
-        timeout.into().as_ticks(),
+        new_period.into().into(),
+        timeout.into().into(),
       )
     } {
       pdPASS => Ok(()),
@@ -131,7 +131,7 @@ impl TimerHandle {
     match unsafe {
       xTimerChangePeriodFromISR(
         self.as_ptr(),
-        new_period.into().as_ticks(),
+        new_period.into().into(),
         id.as_ptr(),
       )
     } {

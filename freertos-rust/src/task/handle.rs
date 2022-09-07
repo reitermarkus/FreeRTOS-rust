@@ -69,15 +69,6 @@ impl TaskHandle {
     unsafe { vTaskResume(self.as_ptr()) }
   }
 
-  /// Forcibly set the notification value for this task.
-  ///
-  /// This is the same as sending `TaskNotification::OverwriteValue(val)` using `notify`,
-  /// which cannot fail.
-  pub fn set_notification_value(&self, val: u32) {
-    // NOTE: Overwriting never fails.
-    let _ = self.notify(TaskNotification::OverwriteValue(val));
-  }
-
   /// Send a notification to this task.
   ///
   /// # Errors

@@ -9,7 +9,7 @@ pub enum FreeRtosError {
   Unavailable,
   /// No more space in queue.
   QueueFull,
-  StringConversionError,
+  /// Task does not exist.
   TaskNotFound,
   InvalidQueueSize,
   ProcessorHasShutDown,

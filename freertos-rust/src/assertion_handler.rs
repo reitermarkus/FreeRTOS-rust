@@ -6,11 +6,12 @@ use core::{
   sync::atomic::{AtomicPtr, Ordering},
 };
 
-type AssertFunction = fn(&'static str, &'static str, usize);
-
-static ASSERT_FUNCTION: AtomicPtr<AssertFunction> = AtomicPtr::new(assert_panic as *mut _);
+static ASSERT_FUNCTION: AtomicPtr<()> = AtomicPtr::new(assert_panic as *mut _);
 
 /// Set a custom assertion handler.
+///
+/// The handler receives the message (i.e. the literal boolean expression as it appears in C code),
+/// the file name and the line number of the failed assertion.
 ///
 /// # Examples
 ///
@@ -19,9 +20,9 @@ static ASSERT_FUNCTION: AtomicPtr<AssertFunction> = AtomicPtr::new(assert_panic 
 ///   panic!("FreeRTOS assertion in file {} at line {} failed: {}", file_name, line, message);
 /// }
 ///
-/// freertos_rust::assert::set_handler(my_assertion_handler);
+/// freertos_rust::set_assertion_handler(my_assertion_handler);
 /// ```
-pub fn set_handler(f: fn(&'static str, &'static str, usize)) {
+pub fn set_assertion_handler(f: fn(message: &'static str, file_name: &'static str, line: usize)) {
   ASSERT_FUNCTION.store(f as *mut _, Ordering::Release);
 }
 
@@ -44,6 +45,6 @@ extern "C" fn assert_called(
       str::from_utf8_unchecked(slice::from_raw_parts(file_name.cast(), file_name_len))
     };
 
-    let f: AssertFunction = unsafe { mem::transmute(ASSERT_FUNCTION.load(Ordering::Acquire)) };
+    let f: fn(&'static str, &'static str, usize) = unsafe { mem::transmute(ASSERT_FUNCTION.load(Ordering::Acquire)) };
     f(message, file_name, line);
 }

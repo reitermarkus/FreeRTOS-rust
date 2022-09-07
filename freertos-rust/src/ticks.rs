@@ -1,6 +1,7 @@
 use core::time::Duration;
 
-use crate::shim::{TickType_t, portMAX_DELAY, portTICK_PERIOD_MS};
+use crate::shim::{portMAX_DELAY, portTICK_PERIOD_MS};
+use crate::ffi::TickType_t;
 
 /// Duration in FreeRTOS ticks.
 ///
@@ -21,22 +22,26 @@ pub struct Ticks {
 }
 
 impl Ticks {
+  /// Create `Ticks` from raw ticks.
   pub const fn new(ticks: TickType_t) -> Self {
     Self { ticks }
   }
+}
 
-  pub(crate) const fn as_ticks(&self) -> TickType_t {
-    self.ticks
+impl const From<Ticks> for TickType_t {
+  fn from(ticks: Ticks) -> Self {
+    ticks.ticks
   }
 }
 
 impl const From<TickType_t> for Ticks {
   fn from(ticks: TickType_t) -> Self {
-    Self { ticks }
+    Self::new(ticks)
   }
 }
 
 impl const From<Duration> for Ticks {
+  /// Convert a `Duration` to `Ticks`.
   fn from(duration: Duration) -> Self {
     let ticks = duration.as_millis() / portTICK_PERIOD_MS as u128;
     Self::new(ticks.try_into().unwrap_or(portMAX_DELAY))

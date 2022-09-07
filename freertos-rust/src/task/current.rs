@@ -31,14 +31,14 @@ impl CurrentTask {
   pub unsafe fn new_unchecked() -> CurrentTask {
     CurrentTask {
       handle: TaskHandle::from_ptr(xTaskGetCurrentTaskHandle()),
-      last_wake_time: Scheduler::tick_count().as_ticks(),
+      last_wake_time: Scheduler::tick_count().into(),
     }
   }
 
   /// Take a notification and either clear the notification value or decrement it by one.
   pub fn take_notification(&mut self, clear: bool, timeout: impl Into<Ticks>) -> u32 {
     unsafe {
-      ulTaskNotifyTake(if clear { pdTRUE } else { pdFALSE }, timeout.into().as_ticks())
+      ulTaskNotifyTake(if clear { pdTRUE } else { pdFALSE }, timeout.into().into())
     }
   }
 
@@ -58,7 +58,7 @@ impl CurrentTask {
         clear_on_entry,
         clear_on_exit,
         &mut val as *mut _,
-        timeout.into().as_ticks(),
+        timeout.into().into(),
       )
     } {
       pdPASS => Ok(val),
@@ -75,14 +75,14 @@ impl CurrentTask {
 
   /// Delay the execution of the current task.
   pub fn delay(&mut self, delay: impl Into<Ticks>) {
-    unsafe { vTaskDelay(delay.into().as_ticks()) }
+    unsafe { vTaskDelay(delay.into().into()) }
   }
 
   /// Delay the execution of the current task by the given duration,
   /// minus the time spent in this task since the last delay.
   pub fn delay_until(&mut self, delay: impl Into<Ticks>) {
     unsafe {
-      vTaskDelayUntil(&mut self.last_wake_time, delay.into().as_ticks())
+      vTaskDelayUntil(&mut self.last_wake_time, delay.into().into())
     }
   }
 }

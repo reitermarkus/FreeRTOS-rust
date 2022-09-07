@@ -1,3 +1,20 @@
+//! FreeRTOS task primitives.
+//!
+//! # Examples
+//!
+//! ```
+//! use freertos_rust::task::{Task, Scheduler};
+//!
+//! Task::new().name("hello").stack_size(128).create(|task| {
+//!   loop {
+//!     println!("Hello, world!");
+//!     task.delay(Duration::MAX);
+//!   }
+//! }).start();
+//!
+//! Scheduler::start();
+//! ```
+
 use core::{
   ffi::c_void,
   ptr,
@@ -125,6 +142,7 @@ impl<A, const STACK_SIZE: usize> Task<A, STACK_SIZE>
 where
   Self: LazyInit<Handle = TaskHandle_t>,
 {
+  /// Start the task.
   pub fn start(&self) -> &TaskHandle {
     unsafe { TaskHandle::from_ptr(self.handle.as_ptr()) }
   }

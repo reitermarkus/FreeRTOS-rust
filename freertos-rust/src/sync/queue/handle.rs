@@ -56,7 +56,7 @@ impl<T> QueueHandle<T> {
   #[inline]
   pub fn send(&self, item: T, timeout: impl Into<Ticks>) -> Result<(), FreeRtosError> {
     let res = unsafe {
-      xQueueSend(self.as_ptr(), ptr::addr_of!(item).cast(), timeout.into().as_ticks())
+      xQueueSend(self.as_ptr(), ptr::addr_of!(item).cast(), timeout.into().into())
     };
 
     match res {
@@ -90,7 +90,7 @@ impl<T> QueueHandle<T> {
     let mut item = MaybeUninit::<T>::zeroed();
 
     let res = unsafe {
-      xQueueReceive(self.as_ptr(), item.as_mut_ptr().cast(), timeout.into().as_ticks())
+      xQueueReceive(self.as_ptr(), item.as_mut_ptr().cast(), timeout.into().into())
     };
 
     match res {

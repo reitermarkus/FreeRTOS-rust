@@ -15,42 +15,6 @@
 //! is used to run the test binaries.
 //!
 //! Be sure to check the [FreeRTOS documentation](http://www.freertos.org/RTOS.html).
-//!
-//! # Samples
-//!
-//! Spawning a new task
-//!
-//! ```rust
-//! # use freertos_rs::*;
-//! Task::new().name("hello").stack_size(128).start(|task| {
-//! 	loop {
-//! 		println!("Hello world!");
-//! 		task.delay(Duration::MAX);
-//! 	}
-//! }).unwrap();
-//!
-//! Task::start_scheduler();
-//! ```
-//!
-//! Queue
-//!
-//! ```rust
-//! # use freertos_rs::*;
-//! let q = Queue::new(10).unwrap();
-//! q.send(10, Duration::from_millis(5)).unwrap();
-//! q.receive(Duration::MAX).unwrap();
-//! ```
-//!
-//! Mutex
-//!
-//! ```rust
-//! # use freertos_rs::*;
-//! let m = Mutex::new(0).unwrap();
-//! {
-//! 	let mut v = m.lock(Duration::MAX).unwrap();
-//! 	*v += 1;
-//! }
-//! ```
 #![no_std]
 #![allow(non_upper_case_globals)]
 #![allow(non_camel_case_types)]
@@ -64,11 +28,14 @@
 #![feature(const_mut_refs)]
 #![feature(const_convert)]
 #![feature(const_result_drop)]
+#![warn(missing_docs)]
 
 #[cfg_attr(any(feature = "time", feature = "sync"), macro_use)]
 extern crate alloc as alloc2;
 
-pub mod assert;
+mod assertion_handler;
+pub use assertion_handler::set_assertion_handler;
+
 mod error;
 mod shim;
 pub mod ffi;
@@ -79,8 +46,7 @@ pub use alloc::Allocator;
 #[cfg(feature = "critical_section")]
 pub mod critical_section;
 
-#[cfg(feature = "interrupt")]
-mod isr;
+mod interrupt_context;
 
 mod lazy_init;
 
@@ -101,15 +67,14 @@ mod ticks;
 mod utils;
 
 #[cfg(feature = "sync")]
+#[allow(missing_docs)]
 pub mod patterns;
 
 pub use crate::error::*;
 
 pub use crate::error::FreeRtosError;
-pub use crate::assert::*;
 
-#[cfg(feature = "interrupt")]
-pub use crate::isr::*;
+pub use crate::interrupt_context::*;
 
 #[cfg(any(feature = "time", feature = "sync"))]
 pub use crate::task::*;

@@ -1,4 +1,4 @@
-/// Status of a [`Task`](crate::Task).
+/// Status of a task.
 #[derive(Copy, Clone, Debug, PartialEq)]
 #[repr(u8)]
 pub enum TaskState {

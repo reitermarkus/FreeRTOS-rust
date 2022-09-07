@@ -1,3 +1,5 @@
+//! FreeRTOS timer primitives.
+
 use core::cell::UnsafeCell;
 use core::ffi::CStr;
 use core::marker::PhantomData;
@@ -46,13 +48,14 @@ impl Timer<'_> {
   /// Stack size of the timer daemon task.
   pub const STACK_SIZE: u16 = configTIMER_TASK_STACK_DEPTH;
 
+  /// Get the handle for the timer daemon task.
   #[inline]
   pub fn daemon_task() -> &'static TaskHandle {
     unsafe { TaskHandle::from_ptr(xTimerGetTimerDaemonTaskHandle()) }
   }
 
   /// Create a new timer builder.
-  pub const fn build() -> TimerBuilder<'static> {
+  pub const fn new() -> TimerBuilder<'static> {
     TimerBuilder {
       name: None,
       period: Ticks::new(0),
@@ -90,6 +93,7 @@ where
   }
 }
 
+#[doc(hidden)]
 pub struct TimerMeta<'f, F> {
   name: Option<&'f CStr>,
   period: TickType_t,

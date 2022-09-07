@@ -4,9 +4,7 @@ use core::cell::UnsafeCell;
 use crate::shim::portMAX_DELAY;
 use crate::FreeRtosError;
 use crate::sync::SemaphoreHandle;
-use crate::shim::{
-  SemaphoreHandle_t,
-};
+use crate::ffi::SemaphoreHandle_t;
 use crate::Ticks;
 
 use super::{

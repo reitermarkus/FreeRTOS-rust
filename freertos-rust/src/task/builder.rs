@@ -10,7 +10,7 @@ use crate::{
 
 use super::{Task, TaskPriority, TaskName, TaskMeta, MINIMAL_STACK_SIZE};
 
-/// Helper for spawning a new task, created with [`Task::new`].
+/// Helper for creating a new task returned by [`Task::new`].
 pub struct TaskBuilder<'n> {
   name: &'n str,
   stack_size: u16,

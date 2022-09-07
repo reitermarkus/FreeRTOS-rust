@@ -1,3 +1,5 @@
+//! FreeRTOS allocator and allocation types.
+
 use core::alloc::{GlobalAlloc, Layout};
 use core::marker::PhantomPinned;
 

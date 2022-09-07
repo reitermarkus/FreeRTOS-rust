@@ -1,4 +1,5 @@
-use crate::shim::*;
+use crate::shim::freertos_rs_yield_from_isr;
+use crate::ffi::BaseType_t;
 
 /// Representation of an interrupt context.
 ///
@@ -27,7 +28,7 @@ impl InterruptContext {
   ///
   /// # Safety
   ///
-  /// `x_higher_priority_task_woken` must point to a `BaseType_t` which will be
+  /// `ptr` must point to a [`BaseType_t`] which will be
   /// passed to `taskYIELD_FROM_ISR` at the end of an interrupt.
   pub unsafe fn from_ptr<'a>(ptr: *mut BaseType_t) -> &'a mut Self {
     // SAFETY: `InterruptContext` is `repr(transparent)`, so its layout is

@@ -5,9 +5,10 @@ use alloc2::{
   vec::Vec,
 };
 
-use crate::error::*;
+use crate::error::FreeRtosError;
 use crate::sync::{Mutex, Queue};
-use crate::ticks::*;
+use crate::ticks::Ticks;
+use crate::interrupt_context::InterruptContext;
 
 pub type SharedClientWithReplyQueue<O, const SIZE: usize> = Arc<ClientWithReplyQueue<O, SIZE>>;
 pub type Client<I, const SIZE: usize> = ProcessorClient<I, (), SIZE>;
@@ -212,7 +213,7 @@ where
 
     pub fn send_from_isr(
         &self,
-        context: &mut crate::isr::InterruptContext,
+        context: &mut InterruptContext,
         message: I,
     ) -> Result<(), FreeRtosError> {
         let processor_queue = self
@@ -233,7 +234,7 @@ where
 
     pub fn send_val_from_isr(
         &self,
-        context: &mut crate::isr::InterruptContext,
+        context: &mut InterruptContext,
         val: I,
     ) -> Result<(), FreeRtosError> {
         self.send_from_isr(context, InputMessage::request(val))

@@ -12,6 +12,7 @@ use crate::{shim::{
 
 use super::{TaskPriority, TaskState, TaskName};
 
+/// Task status.
 #[derive(Debug)]
 pub struct TaskStatus {
   pub(crate) handle: &'static TaskHandle,
@@ -60,6 +61,7 @@ impl TaskStatus {
   }
 }
 
+/// System state.
 #[derive(Debug)]
 pub struct SystemState {
   pub(crate) tasks: Vec<TaskStatus>,
