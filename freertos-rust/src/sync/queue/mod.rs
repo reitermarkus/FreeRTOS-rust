@@ -160,8 +160,7 @@ where
 {
     /// Create a sender/receiver pair from this queue.
     pub fn split(&'static self) -> (Sender<&'static Self>, Receiver<&'static Self>) {
-      let queue = self.get_ref();
-      (Sender { queue }, Receiver { queue })
+      (Sender { queue: self }, Receiver { queue: self })
     }
 }
 
