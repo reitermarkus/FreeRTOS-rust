@@ -84,7 +84,7 @@ impl TimerBuilder<'static> {
   ///
   /// // SAFETY: Assignment to a `static` ensures the timer will never move.
   /// pub static TIMER: Pin<Timer<Static>> = unsafe {
-  ///   Pin::new_unchecked(Timer::new(Ticks::new(200).create_static(my_timer_callback)))
+  ///   Pin::new_unchecked(Timer::new().period(Ticks::new(200).create_static(my_timer_callback)))
   /// };
   /// ```
   #[must_use]

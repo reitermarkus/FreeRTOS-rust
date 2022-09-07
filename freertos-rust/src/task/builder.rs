@@ -1,14 +1,14 @@
-use core::{ptr, mem, ffi::c_void};
+use core::marker::PhantomData;
 
 use alloc2::{boxed::Box};
 
 use crate::{
+  alloc::{Dynamic, Static},
   CurrentTask,
-  shim::{configMAX_TASK_NAME_LEN, pdPASS, pdFAIL, xTaskCreate, vTaskDelete},
-  FreeRtosError,
+  lazy_init::{LazyPtr, LazyInit},
 };
 
-use super::{Task, TaskPriority, TaskName, MINIMAL_STACK_SIZE};
+use super::{Task, TaskPriority, TaskName, TaskMeta, MINIMAL_STACK_SIZE};
 
 /// Helper for spawning a new task, created with [`Task::new`].
 pub struct TaskBuilder<'n> {
@@ -49,52 +49,66 @@ impl TaskBuilder<'_> {
     self
   }
 
-  /// Create and start the [`Task`].
-  pub fn start<'f, F>(&self, f: F) -> Result<Task, FreeRtosError>
+  /// Create the dynamic [`Task`].
+  ///
+  /// The returned task needs to be started.
+  #[must_use = "task must be started"]
+  pub fn create<'f, F>(&self, f: F) -> Task<Dynamic>
   where
     F: FnOnce(&mut CurrentTask) + Send + 'static,
   {
-    extern "C" fn task_function(param: *mut c_void) {
-      unsafe {
-        // NOTE: New scope so that everything is dropped before the task is deleted.
-        {
-          let mut current_task = CurrentTask::new_unchecked();
-          let function = Box::from_raw(param as *mut Box<dyn FnOnce(&mut CurrentTask)>);
-          function(&mut current_task);
-        }
-
-        vTaskDelete(ptr::null_mut());
-        unreachable!();
-      }
-    }
-
-    let name = TaskName::<{ configMAX_TASK_NAME_LEN as usize }>::new(self.name);
-
-    let f: Box<dyn FnOnce(&mut CurrentTask)> = Box::new(f);
-    let mut function = Box::new(f);
-    let function_ptr: *mut Box<dyn FnOnce(&mut CurrentTask)> = &mut *function;
-
-    let mut ptr = ptr::null_mut();
-    let res = unsafe {
-      xTaskCreate(
-        Some(task_function),
-        name.as_ptr(),
-        self.stack_size,
-        function_ptr.cast(),
-        self.priority.to_freertos(),
-        &mut ptr,
-      )
+    let meta: <Task<Dynamic> as LazyInit>::Data = TaskMeta {
+      name: TaskName::new(self.name),
+      stack_size: self.stack_size,
+      priority: self.priority,
+      f: Some(Box::new(f)),
     };
 
-    match (res, ptr) {
-      (pdPASS, ptr) if !ptr.is_null() => {
-        mem::forget(function);
-        Ok(Task { ptr })
-      },
-      (pdFAIL, ptr) if ptr.is_null() => {
-        Err(FreeRtosError::OutOfMemory)
-      },
-      _ => unreachable!(),
+    Task {
+      alloc_type: PhantomData,
+      handle: LazyPtr::new(meta),
+    }
+  }
+}
+
+impl TaskBuilder<'static> {
+  /// Create the static [`Task`].
+  ///
+  /// The returned task needs to be started.
+  ///
+  /// # Safety
+  ///
+  /// The returned task must be [pinned](core::pin) before using it.
+  ///
+  /// # Examples
+  ///
+  /// ```
+  /// use core::pin::Pin;
+  /// use freertos_rust::{alloc::Static, task::{Task, CurrentTask}};
+  ///
+  /// fn my_task(task: &mut CurrentTask) {
+  ///   // ...
+  /// }
+  ///
+  /// // SAFETY: Assignment to a `static` ensures the timer will never move.
+  /// pub static TASK: Pin<Task<Static, 1337>> = unsafe {
+  ///   Pin::new_unchecked(Task::new().create_static(my_task))
+  /// };
+  ///
+  /// TASK.start();
+  /// ```
+  #[must_use = "task must be started"]
+  pub const unsafe fn create_static<const STACK_SIZE: usize>(self, f: fn(&mut CurrentTask)) -> Task<Static, STACK_SIZE> {
+    let meta: <Task<Static> as LazyInit>::Data = TaskMeta {
+      name: self.name,
+      stack_size: (),
+      priority: self.priority,
+      f,
+    };
+
+    Task {
+      alloc_type: PhantomData,
+      handle: LazyPtr::new(meta),
     }
   }
 }

@@ -1,11 +1,17 @@
 use core::{
   ffi::c_void,
   ptr,
+  marker::PhantomData,
   ops::Deref, cell::UnsafeCell,
-  mem::{self, MaybeUninit}, sync::atomic::{AtomicPtr, Ordering},
+  mem::{self, MaybeUninit},
 };
 
+use alloc2::boxed::Box;
+
+use crate::alloc::{Dynamic, Static};
 use crate::shim::*;
+use crate::lazy_init::LazyInit;
+use crate::lazy_init::LazyPtr;
 
 mod builder;
 pub use builder::TaskBuilder;
@@ -28,78 +34,18 @@ pub use state::TaskState;
 mod system_state;
 pub use system_state::{SystemState, TaskStatus};
 
-
 /// Minimal task stack size.
 pub const MINIMAL_STACK_SIZE: u16 = configMINIMAL_STACK_SIZE;
 
+impl<const STACK_SIZE: usize> LazyInit for Task<Static, STACK_SIZE> {
+  type Storage = (MaybeUninit<StaticTask_t>, [MaybeUninit<StackType_t>; STACK_SIZE]);
+  type Handle = TaskHandle_t;
+  type Data = TaskMeta<&'static str, (), fn(&mut CurrentTask)>;
 
-pub struct StaticTaskBuilder {
-  name: &'static str,
-  priority: TaskPriority,
-}
+  fn init(data: &UnsafeCell<Self::Data>, storage: &UnsafeCell<MaybeUninit<Self::Storage>>) -> Self::Ptr {
+    let data = unsafe { &mut *data.get() };
+    let (task, stack) = unsafe { (&mut *storage.get()).assume_init_mut() };
 
-impl StaticTaskBuilder {
-  /// Set the task name.
-  pub const fn name(mut self, name: &'static str) -> Self {
-    self.name = name;
-    self
-  }
-
-  /// Set the task priority.
-  pub const fn priority(mut self, priority: TaskPriority) -> Self {
-    self.priority = priority;
-    self
-  }
-
-  /// Create the [`StaticTask`].
-  ///
-  /// The returned `StaticTask` needs to be assigned to a `static` variable in order to be started.
-  pub const fn create<const STACK_SIZE: usize>(self, f: fn(&mut CurrentTask)) -> StaticTask<STACK_SIZE> {
-    StaticTask {
-      name: self.name,
-      priority: self.priority,
-      task: UnsafeCell::new(MaybeUninit::uninit()),
-      stack: UnsafeCell::new(MaybeUninit::uninit_array()),
-      f: AtomicPtr::new(f as *mut _),
-    }
-  }
-}
-
-/// A statically allocated task.
-pub struct StaticTask<const STACK_SIZE: usize = 0> {
-  name: &'static str,
-  priority: TaskPriority,
-  task: UnsafeCell<MaybeUninit<StaticTask_t>>,
-  stack: UnsafeCell<[MaybeUninit<StackType_t>; STACK_SIZE]>,
-  // Invariant: If `f` is null, the task is started and `task` is initialized.
-  f: AtomicPtr<c_void>,
-}
-
-unsafe impl<const STACK_SIZE: usize> Send for StaticTask<STACK_SIZE> {}
-unsafe impl<const STACK_SIZE: usize> Sync for StaticTask<STACK_SIZE> {}
-
-impl StaticTask {
-  pub const fn new() -> StaticTaskBuilder {
-    StaticTaskBuilder {
-      name: "",
-      priority: unsafe { TaskPriority::new_unchecked(1) },
-    }
-  }
-}
-
-impl<const STACK_SIZE: usize> StaticTask<STACK_SIZE> {
-  /// Start the task.
-  pub fn start(&'static self) -> &'static TaskHandle {
-    let function_ptr = self.f.load(Ordering::Acquire);
-    if function_ptr.is_null() {
-      return unsafe { TaskHandle::from_ptr((&mut *self.task.get()).as_mut_ptr().cast()) }
-    }
-
-    self.start_inner()
-  }
-
-  #[cold]
-  fn start_inner(&'static self) -> &'static TaskHandle {
     extern "C" fn task_function(param: *mut c_void) {
       unsafe {
         // NOTE: New scope so that everything is dropped before the task is deleted.
@@ -114,48 +60,54 @@ impl<const STACK_SIZE: usize> StaticTask<STACK_SIZE> {
       }
     }
 
-    unsafe {
-      freertos_rs_enter_critical();
+    let name = TaskName::<{ configMAX_TASK_NAME_LEN as usize }>::new(data.name);
 
-      let mut function_ptr = &mut *ptr::addr_of!(self.f).cast_mut();
-      let function_ptr = function_ptr.get_mut();
+    let function: fn(&mut CurrentTask) = data.f;
+    let function_ptr = function as *mut c_void;
 
-      if function_ptr.is_null() {
-        freertos_rs_exit_critical();
-        return TaskHandle::from_ptr((&mut *self.task.get()).as_mut_ptr().cast())
-      }
-
-      let name = TaskName::<{ configMAX_TASK_NAME_LEN as usize }>::new(self.name);
-      let task = &mut *self.task.get();
-      let stack = &mut *self.stack.get();
-
-      let ptr = xTaskCreateStatic(
+    let ptr = unsafe {
+      xTaskCreateStatic(
         Some(task_function),
         name.as_ptr(),
         STACK_SIZE as _,
-        *function_ptr,
-        self.priority.to_freertos(),
+        function_ptr,
+        data.priority.to_freertos(),
         MaybeUninit::slice_as_mut_ptr(stack),
         task.as_mut_ptr(),
-      );
-      debug_assert!(!ptr.is_null());
+      )
+    };
+    debug_assert!(!ptr.is_null());
 
-      *function_ptr = ptr::null_mut();
 
-      freertos_rs_exit_critical();
+    unsafe { Self::Ptr::new_unchecked(ptr) }
+  }
 
-      TaskHandle::from_ptr(ptr)
-    }
+  fn cancel_init_supported() -> bool {
+    false
+  }
+
+  fn destroy(_ptr: Self::Ptr, _storage: &mut MaybeUninit<Self::Storage>) {
+    // Task deletes itself.
   }
 }
 
 /// A task.
-pub struct Task {
-  ptr: TaskHandle_t,
+pub struct Task<A = Dynamic, const STACK_SIZE: usize = 0>
+where
+  Self: LazyInit,
+{
+  alloc_type: PhantomData<A>,
+  handle: LazyPtr<Self>,
 }
 
-unsafe impl Send for Task {}
-unsafe impl Sync for Task {}
+unsafe impl<A, const STACK_SIZE: usize> Send for Task<A, STACK_SIZE>
+where
+  Self: LazyInit
+{}
+unsafe impl<A, const STACK_SIZE: usize> Sync for Task<A, STACK_SIZE>
+where
+  Self: LazyInit
+{}
 
 impl Task {
   /// Prepare a builder object for the new task.
@@ -169,10 +121,83 @@ impl Task {
   }
 }
 
-impl Deref for Task {
+impl<A, const STACK_SIZE: usize> Task<A, STACK_SIZE>
+where
+  Self: LazyInit<Handle = TaskHandle_t>,
+{
+  pub fn start(&self) -> &TaskHandle {
+    unsafe { TaskHandle::from_ptr(self.handle.as_ptr()) }
+  }
+}
+
+impl<A> Deref for Task<A>
+where
+  Self: LazyInit<Handle = TaskHandle_t>,
+{
   type Target = TaskHandle;
 
+  #[inline]
   fn deref(&self) -> &Self::Target {
-    unsafe { TaskHandle::from_ptr(self.ptr) }
+    self.start()
+  }
+}
+
+#[doc(hidden)]
+pub struct TaskMeta<N, S, F> {
+  name: N,
+  stack_size: S,
+  priority: TaskPriority,
+  f: F,
+}
+
+impl LazyInit for Task<Dynamic> {
+  type Storage = ();
+  type Handle = TaskHandle_t;
+  type Data = TaskMeta<TaskName<{ configMAX_TASK_NAME_LEN as usize }>, u16, Option<Box<dyn FnOnce(&mut CurrentTask)>>>;
+
+  fn init(data: &UnsafeCell<Self::Data>, _storage: &UnsafeCell<MaybeUninit<Self::Storage>>) -> Self::Ptr {
+    let data = unsafe { &mut *data.get() };
+
+    extern "C" fn task_function(param: *mut c_void) {
+      unsafe {
+        // NOTE: New scope so that everything is dropped before the task is deleted.
+        {
+          let mut current_task = CurrentTask::new_unchecked();
+          let function = Box::from_raw(param as *mut Box<dyn FnOnce(&mut CurrentTask)>);
+          function(&mut current_task);
+        }
+
+        vTaskDelete(ptr::null_mut());
+        unreachable!();
+      }
+    }
+
+    let mut function = Box::new(data.f.take().unwrap());
+    let function_ptr: *mut Box<dyn FnOnce(&mut CurrentTask)> = &mut *function;
+
+    let mut ptr = ptr::null_mut();
+    let res = unsafe {
+      xTaskCreate(
+        Some(task_function),
+        data.name.as_ptr(),
+        data.stack_size,
+        function_ptr.cast(),
+        data.priority.to_freertos(),
+        &mut ptr,
+      )
+    };
+    assert_eq!(res, pdPASS);
+    assert!(!ptr.is_null());
+
+    mem::forget(function);
+    unsafe { Self::Ptr::new_unchecked(ptr) }
+  }
+
+  fn cancel_init_supported() -> bool {
+    false
+  }
+
+  fn destroy(_ptr: Self::Ptr, _storage: &mut MaybeUninit<Self::Storage>) {
+    // Task deletes itself.
   }
 }

@@ -43,7 +43,7 @@ where
 {}
 
 impl Timer<'_> {
-  /// Stack size of the timer task.
+  /// Stack size of the timer daemon task.
   pub const STACK_SIZE: u16 = configTIMER_TASK_STACK_DEPTH;
 
   #[inline]

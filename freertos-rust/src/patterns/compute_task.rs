@@ -4,6 +4,7 @@ use alloc2::{
   sync::Arc,
 };
 
+use crate::alloc::Dynamic;
 use crate::error::*;
 use crate::sync::{Mutex, Queue};
 use crate::task::*;
@@ -32,7 +33,7 @@ impl ComputeTaskBuilder for TaskBuilder<'_> {
 
             let task_result = result.clone();
             let task_status = status.clone();
-            let task = self.start(move |_this_task| {
+            let task = self.create(move |_this_task| {
                 {
                     let mut lock = task_result.timed_lock(Duration::MAX).unwrap();
                     let r = func();
@@ -43,7 +44,8 @@ impl ComputeTaskBuilder for TaskBuilder<'_> {
                 task_status
                     .send(ComputeTaskStatus::Finished, Duration::MAX)
                     .unwrap();
-            })?;
+            });
+            task.start();
 
             (task, result, status)
         };
@@ -106,7 +108,7 @@ enum ComputeTaskStatus {
 
 impl<R: Debug, const SIZE: usize> ComputeTask<R, SIZE> {
     /// Get the handle of the task that computes the result.
-    pub fn get_task(&self) -> &Task {
+    pub fn get_task(&self) -> &Task<Dynamic> {
         &self.task
     }
 

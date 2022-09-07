@@ -6,7 +6,7 @@ use core::{
 
 /// Helper struct for passing a `&str` to `xTaskCreate`.
 #[derive(Debug)]
-pub(crate) struct TaskName<const CAPACITY: usize> {
+pub struct TaskName<const CAPACITY: usize> {
   buf: [MaybeUninit<u8>; CAPACITY],
 }
 
