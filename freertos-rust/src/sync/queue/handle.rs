@@ -19,7 +19,7 @@ use crate::shim::{
 };
 use crate::Ticks;
 
-/// A handle for low-level management of a queue.
+/// A handle for managing a queue.
 ///
 /// See [`Queue`](crate::Queue) for the preferred owned version.
 #[repr(transparent)]

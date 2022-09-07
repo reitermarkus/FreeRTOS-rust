@@ -18,7 +18,7 @@ use crate::shim::xTimerStartFromISR;
 use crate::shim::xTimerStop;
 use crate::shim::xTimerStopFromISR;
 
-/// A handle for low-level management of a timer.
+/// A handle for managing a timer.
 ///
 /// See [`Timer`](crate::timer::Timer) for the preferred owned version.
 ///

@@ -21,7 +21,7 @@ use crate::{
 
 use super::SemaphoreGuard;
 
-/// A handle for low-level management of a semaphore.
+/// A handle for managing a semaphore.
 ///
 /// See [`Semaphore`](crate::Semaphore) for the preferred owned version.
 #[repr(transparent)]

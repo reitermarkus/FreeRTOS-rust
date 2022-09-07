@@ -16,7 +16,7 @@ use super::{
 
 macro_rules! impl_mutex_handle {
   ($mutex:ident, $handle:ident, $guard:ident, $take:ident, $give:ident $(,)?) => {
-    /// A handle for low-level management of a mutex.
+    /// A handle for managing a mutex.
     ///
     #[doc = concat!("See [`", stringify!($mutex), "`](crate::sync::", stringify!($mutex), ") for the preferred owned version.")]
     ///

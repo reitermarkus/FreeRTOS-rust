@@ -16,7 +16,7 @@ use crate::shim::freertos_rs_task_notify_indexed_from_isr;
 use crate::shim::pdPASS;
 use crate::shim::xTaskNotify;
 
-/// A handle for low-level management of a task.
+/// A handle for managing a task.
 ///
 /// See [`Task`](crate::task::Task) for the preferred owned version.
 ///
