@@ -1,0 +1,345 @@
+on:
+  workflow_call:
+    inputs:
+      toolchain:
+        description: 'Rust toolchain'
+        default: ''
+        type: string
+      test-args:
+        description: 'Cargo test arguments'
+        default: '--workspace'
+        type: string
+
+    secrets:
+      CRATESIO_TOKEN:
+        required: false
+
+name: CI
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: '1'
+  CROSS_CONTAINER_UID: '0'
+  CROSS_CONTAINER_GID: '0'
+  CROSS_DEBUG: '1'
+
+jobs:
+  lint:
+    outputs:
+      toolchain: ${{ steps.toolchain.outputs.toolchain }}
+      matrix: ${{ steps.matrix.outputs.matrix }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@2541b1294d2704b0964813337f33b291d3f8596b # tag=v3
+        with:
+          submodules: true
+
+      - name: Check cargo config
+        run: |
+          if [[ -f .cargo/config.toml ]]; then
+            cargo_config=".cargo/config.toml"
+          elif [[ -f .cargo/config ]]; then
+            cargo_config=".cargo/config"
+          fi
+
+          if [[ -n "${cargo_config}" ]]; then
+            echo "::set-output name=cargo-config::${cargo_config}"
+          fi
+        id: cargo-config
+
+      - name: Get target
+        uses: SebRollen/toml-action@e6b4093b7c0220574cc9b6279f3be8bc850f88f6
+        if: steps.cargo-config.outputs.cargo-config
+        id: cargo-target
+        with:
+          file: ${{ steps.cargo-config.outputs.cargo-config }}
+          field: 'build.target'
+
+      - name: Get toolchain
+        id: toolchain
+        run: |
+          if [[ -z "${toolchain}" ]]; then
+            if [[ -f rust-toolchain ]]; then
+              toolchain="$(cat rust-toolchain)"
+            else
+              toolchain='stable'
+            fi
+          fi
+
+          if [[ "${target}" =~ xtensa* ]]; then
+            echo "Installing Xtensa toolchain …"
+            curl -fSsL 'https://raw.githubusercontent.com/esp-rs/rust-build/HEAD/install-rust-toolchain.sh' | \
+              bash -s -- --extra-crates ldproxy --export-file ~/esp-rust.sh
+
+            eval "$(sed 's/export /echo /' ~/esp-rust.sh)" >> "${GITHUB_ENV}"
+            cat "${GITHUB_ENV}"
+
+            components=''
+            target=''
+          fi
+
+          if [[ -n "${toolchain}" ]]; then
+            echo "::set-output name=toolchain::${toolchain}"
+          fi
+
+          if [[ -n "${components}" ]]; then
+            echo "::set-output name=components::${components}"
+          fi
+
+          if [[ -n "${target}" ]]; then
+            echo "::set-output name=target::${target}"
+          fi
+        env:
+          toolchain: ${{ inputs.toolchain }}
+          components: 'clippy'
+          target: ${{ steps.cargo-target.outputs.value }}
+
+      - name: Install toolchain
+        uses: actions-rs/toolchain@16499b5e05bf2e26879000db0c1d13f7e13fa3af # tag=v1
+        with:
+          toolchain: ${{ steps.toolchain.outputs.toolchain }}
+          override: true
+          components: ${{ steps.toolchain.outputs.components }}
+          target: ${{ steps.toolchain.outputs.target }}
+
+      - name: Set up cache
+        uses: Swatinem/rust-cache@6720f05bc48b77f96918929a9019fb2203ff71f8 # tag=v2.0.0
+
+      - name: Run cargo check
+        uses: actions-rs/cargo@844f36862e911db73fe0815f00a4a2602c279505 # tag=v1
+        with:
+          command: check
+          args: ${{ (steps.cargo-target.outputs.value && format('--target {0}', steps.cargo-target.outputs.value)) || '' }}
+          use-cross: ${{ !!steps.cargo-target.outputs.value }}
+
+      - name: Run cargo clippy
+        uses: actions-rs/clippy-check@b5b5f21f4797c02da247df37026fcd0a5024aa4d # tag=v1
+        with:
+          token: ${{ github.token }}
+          args: ${{ (steps.cargo-target.outputs.value && format('--target {0}', steps.cargo-target.outputs.value)) || '' }} -- -D warnings
+          use-cross: ${{ !!steps.cargo-target.outputs.value }}
+
+      - name: Generate build/test matrix
+        run: |
+          if [[ -n "${target}" ]]; then
+            test_matrix='[{
+              "os": "ubuntu-latest",
+              "use-cross": true
+            }]'
+
+            test_args+=" --target ${target}"
+          else
+            test_matrix='[{
+              "os": "ubuntu-latest",
+              "target": "x86_64-unknown-linux-gnu"
+            }, {
+              "os": "macos-latest",
+              "target": "x86_64-apple-darwin"
+            }]'
+          fi
+
+          test_matrix="$(
+            jq -c \
+              --arg toolchain "${toolchain}" \
+              --arg target "${target}" \
+              --arg test_args "${test_args}" \
+              '
+                map(.toolchain = (.toolchain // $toolchain) | .target = (.target // $target) | .["test-args"] = $test_args) |
+                  {"include": .}
+              ' \
+              <<< "${test_matrix}"
+          )"
+
+          jq -C <<< "${test_matrix}"
+
+          echo "::set-output name=matrix::${test_matrix}"
+        env:
+          toolchain: ${{ steps.toolchain.outputs.toolchain }}
+          target: ${{ steps.toolchain.outputs.target }}
+          test_args: ${{ inputs.test-args }}
+        id: matrix
+
+  test:
+    name: test (${{ matrix.target }})
+    runs-on: ${{ matrix.os }}
+    needs: lint
+    strategy:
+      matrix: ${{ fromJSON(needs.lint.outputs.matrix) }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@2541b1294d2704b0964813337f33b291d3f8596b # tag=v3
+        with:
+          submodules: true
+
+      - name: Install toolchain
+        uses: actions-rs/toolchain@16499b5e05bf2e26879000db0c1d13f7e13fa3af # tag=v1
+        with:
+          toolchain: ${{ matrix.toolchain }}
+          override: true
+          target: ${{ matrix.target }}
+
+      - name: Set up cache
+        uses: Swatinem/rust-cache@6720f05bc48b77f96918929a9019fb2203ff71f8 # tag=v2.0.0
+
+      - name: Run tests without default features
+        uses: actions-rs/cargo@844f36862e911db73fe0815f00a4a2602c279505 # tag=v1
+        with:
+          command: test
+          args: >
+            --no-fail-fast
+            ${{ matrix.test-args }}
+            --no-default-features
+          use-cross: ${{ matrix.use-cross }}
+
+      - name: Run tests with default features
+        uses: actions-rs/cargo@844f36862e911db73fe0815f00a4a2602c279505 # tag=v1
+        with:
+          command: test
+          args: >
+            --no-fail-fast
+            ${{ matrix.test-args }}
+          use-cross: ${{ matrix.use-cross }}
+
+      - name: Run tests with all features
+        uses: actions-rs/cargo@844f36862e911db73fe0815f00a4a2602c279505 # tag=v1
+        with:
+          command: test
+          args: >
+            --no-fail-fast
+            ${{ matrix.test-args }}
+            --all-features
+          use-cross: ${{ matrix.use-cross }}
+
+  build:
+    name: build (${{ matrix.target }})
+    outputs:
+      artifact: ${{ steps.artifact.outputs.name }}
+    runs-on: ${{ matrix.os }}
+    needs: lint
+    strategy:
+      matrix: ${{ fromJSON(needs.lint.outputs.matrix) }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@2541b1294d2704b0964813337f33b291d3f8596b # tag=v3
+        with:
+          submodules: true
+
+      - name: Install toolchain
+        uses: actions-rs/toolchain@16499b5e05bf2e26879000db0c1d13f7e13fa3af # tag=v1
+        with:
+          toolchain: ${{ matrix.toolchain }}
+          override: true
+          target: ${{ matrix.target }}
+
+      - name: Set up cache
+        uses: Swatinem/rust-cache@6720f05bc48b77f96918929a9019fb2203ff71f8 # tag=v2.0.0
+
+      - name: Build with all features
+        uses: actions-rs/cargo@844f36862e911db73fe0815f00a4a2602c279505 # tag=v1
+        with:
+          command: build
+          args: >
+            --release
+            --target ${{ matrix.target }}
+            --all-features
+          use-cross: ${{ matrix.use-cross }}
+
+      - name: Archive artifacts
+        id: artifact
+        run: |
+          set -x
+
+          target_dir="target/${target}/release/"
+
+          metadata="$(cargo metadata --format-version 1 --no-deps)"
+          package_name="$(jq -r '.packages[0].name' <<< "${metadata}")"
+          files="$(jq "[.packages[0].targets[] | select(.kind[] | contains(\"bin\")) | .name]" <<< "${metadata}")"
+
+          if [[ $(jq -r 'length' <<< "${files}") -eq 0 ]]; then
+            exit
+          fi
+
+          artifact_name="${package_name}-${target}"
+          artifacts_dir="artifacts"
+          artifact_path="${artifacts_dir}/${artifact_name}.tar.gz"
+
+          mkdir "${artifacts_dir}"
+
+          jq -r '.[]' <<< "${files}" | \
+            tar -cvzf "${artifact_path}" -C "${target_dir}" -T -
+
+          tar -tf "${artifact_path}"
+          ls -al "${artifact_path}"
+
+          echo "::set-output name=name::${artifact_name}"
+          echo "::set-output name=path::${artifact_path}"
+        env:
+          target: ${{ matrix.target }}
+
+      - name: Upload artifacts
+        if: ${{ steps.artifact.outputs.path }}
+        uses: actions/upload-artifact@3cea5372237819ed00197afe530f5a7ea3e805c8 # tag=v3
+        with:
+          name: ${{ steps.artifact.outputs.name }}
+          path: ${{ steps.artifact.outputs.path }}
+          if-no-files-found: error
+
+  publish:
+    runs-on: ubuntu-latest
+    needs: [lint, test, build]
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@2541b1294d2704b0964813337f33b291d3f8596b # tag=v3
+        with:
+          submodules: true
+
+      - name: Install toolchain
+        uses: actions-rs/toolchain@16499b5e05bf2e26879000db0c1d13f7e13fa3af # tag=v1
+        with:
+          toolchain: ${{ needs.lint.outputs.toolchain }}
+          override: true
+
+      - name: Set up cache
+        uses: Swatinem/rust-cache@6720f05bc48b77f96918929a9019fb2203ff71f8 # tag=v2.0.0
+
+      - name: Check if crate should be published
+        uses: SebRollen/toml-action@e6b4093b7c0220574cc9b6279f3be8bc850f88f6
+        id: cargo-toml-publish
+        with:
+          file: Cargo.toml
+          field: 'package.publish'
+
+      - name: Download artifacts
+        id: download-artifacts
+        if: needs.build.outputs.artifact
+        uses: actions/download-artifact@fb598a63ae348fa914e94cd0ff38f362e927b741 # tag=v3
+        with:
+          path:
+            ${{ runner.temp }}/artifacts
+
+      - name: Log into crates.io
+        if: steps.cargo-toml-publish.outputs.value != 'false' && github.event_name != 'pull_request'
+        uses: actions-rs/cargo@844f36862e911db73fe0815f00a4a2602c279505 # tag=v1
+        with:
+          command: login
+          args: -- ${{ secrets.CRATESIO_TOKEN }}
+
+      - name: Upload GitHub release artifacts
+        if: >
+          needs.build.outputs.artifact != '' && github.event_name == 'push' && (
+            github.ref == format('refs/heads/{0}', github.event.repository.default_branch) ||
+            startsWith(github.ref, 'refs/tags/v')
+          )
+        uses: softprops/action-gh-release@1e07f4398721186383de40550babbdf2b84acfc5 # tag=v1
+        with:
+          draft: ${{ !startsWith(github.ref, 'refs/tags/v') }}
+          files: |
+            ${{ steps.download-artifacts.outputs.download-path }}/*/*
+
+      - name: Publish crate
+        if: steps.cargo-toml-publish.outputs.value != 'false'
+        uses: actions-rs/cargo@844f36862e911db73fe0815f00a4a2602c279505 # tag=v1
+        with:
+          command: publish
+          args: ${{ !startsWith(github.ref, 'refs/tags/v') && '--dry-run' || '' }}

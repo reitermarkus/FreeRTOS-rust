@@ -32,7 +32,7 @@ pub fn port() -> PathBuf {
   match (target.as_str(), target_arch.as_str(), target_os.as_str(), target_env.as_str()) {
     (_, "x86_64", "macos", _) => Path::new("ThirdParty").join("GCC").join("Posix"),
     (_, "x86_64", "windows", _) => PathBuf::from("MSVC-MingW"),
-    (_, "x86_64", "linux", "gnu") => Path::new("GCC").join("Linux"),
+    (_, "x86_64", "linux", "gnu") => Path::new("ThirdParty").join("GCC").join("Posix"),
     ("thumbv7m-none-eabi", _, _, _) => Path::new("GCC").join("ARM_CM3"),
     ("thumbv7em-none-eabihf", _, _, _) => Path::new("GCC").join("ARM_CM4F"),
     ("thumbv8m.main-none-eabi", _, _, _) => Path::new("GCC").join("ARM_CM33_NTZ").join("non_secure"),

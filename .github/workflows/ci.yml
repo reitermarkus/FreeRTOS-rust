@@ -1,0 +1,9 @@
+on: [pull_request, push]
+
+name: CI
+
+jobs:
+  ci:
+    uses: reitermarkus/FreeRTOS-Rust/.github/workflows/cargo-build-publish.yml@dpp
+    secrets:
+      CRATESIO_TOKEN: ${{ secrets.CRATESIO_TOKEN }}
