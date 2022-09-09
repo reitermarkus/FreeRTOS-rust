@@ -45,7 +45,7 @@ pub fn port() -> PathBuf {
 }
 
 /// Find `.c` files until the given depth.
-pub fn find_c_files(dir: impl AsRef<Path>, depth: Option<usize>) -> Vec<PathBuf> {
+pub fn find_c_files(dir: impl AsRef<Path>, depth: Option<usize>) -> Result<Vec<PathBuf>, std::io::Error> {
   let mut w = WalkDir::new(dir).follow_links(false);
 
   if let Some(depth) = depth {
@@ -53,16 +53,18 @@ pub fn find_c_files(dir: impl AsRef<Path>, depth: Option<usize>) -> Vec<PathBuf>
   }
 
   w.into_iter()
-    .filter_map(|e| e.ok())
-    .filter_map(|entry| {
+    .map(|entry| {
+      let entry = entry?;
+
       let f_name = entry.path();
 
-      f_name.extension().and_then(|ext| if ext == ".c" {
+      Ok(f_name.extension().and_then(|ext| if ext == "c" {
         Some(f_name.into())
       } else {
         None
-      })
+      }))
     })
+    .filter_map(|res| res.transpose())
     .collect()
 }
 
@@ -78,8 +80,8 @@ pub fn builders(
   let port = portable.join(&port());
   let heap = portable.join("MemMang").join(&heap());
 
-  let mut c_files = find_c_files(source, Some(1));
-  c_files.extend(find_c_files(&port, None));
+  let mut c_files = find_c_files(source, Some(1)).unwrap();
+  c_files.extend(find_c_files(&port, None).unwrap());
   c_files.push(heap);
 
   let includes = vec![

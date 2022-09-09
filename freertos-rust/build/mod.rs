@@ -576,8 +576,9 @@ fn main() {
     out_dir.clone()
   };
 
+  let (mut cc, bindgen) = build::builders(freertos_source, freertos_config);
 
-  let (cc, bindgen) = build::builders(freertos_source, freertos_config);
+  cc.file(shim_dir.join("shim.c"));
 
   if let Err(err) = cc.try_compile("freertos") {
     eprintln!("Compilation failed: {}", err);
