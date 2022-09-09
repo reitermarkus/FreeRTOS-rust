@@ -460,7 +460,7 @@ impl ParseCallbacks for Callbacks {
   }
 
   fn int_macro(&self, name: &str, value: i64) -> Option<IntKind> {
-    if name == "configUSE_STATIC_ALLOCATION" && value != 0 {
+    if name == "configSUPPORT_STATIC_ALLOCATION" && value != 0 {
       println!(r#"cargo:rustc-cfg=freertos_feature="static_allocation""#);
     }
 

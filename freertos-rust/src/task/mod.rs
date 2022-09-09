@@ -96,7 +96,7 @@ where
   }
 }
 
-impl<A> Deref for Task<A>
+impl<A, const STACK_SIZE: usize> Deref for Task<A, STACK_SIZE>
 where
   Self: LazyInit<Handle = TaskHandle_t>,
 {
