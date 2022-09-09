@@ -65,7 +65,7 @@ impl TaskStatus {
 #[derive(Debug)]
 pub struct SystemState {
   pub(crate) tasks: Vec<TaskStatus>,
-  pub(crate) total_run_time: u32,
+  pub(crate) total_run_time: c_ulong,
 }
 
 impl fmt::Display for SystemState {

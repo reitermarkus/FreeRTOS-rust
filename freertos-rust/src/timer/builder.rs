@@ -5,6 +5,7 @@ use alloc2::{boxed::Box};
 
 use crate::Ticks;
 use crate::alloc::Dynamic;
+#[cfg(freertos_feature = "static_allocation")]
 use crate::alloc::Static;
 use crate::lazy_init::LazyInit;
 use crate::lazy_init::LazyPtr;
@@ -87,6 +88,7 @@ impl TimerBuilder<'static> {
   /// };
   /// ```
   #[must_use]
+  #[cfg(freertos_feature = "static_allocation")]
   pub const unsafe fn create_static(self, callback: fn(&TimerHandle)) -> Timer<'static, Static> {
     let meta = TimerMeta {
       name: self.name,

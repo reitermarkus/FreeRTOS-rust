@@ -54,6 +54,7 @@ pub fn write_to_file(f: &mut File) -> io::Result<()> {
     writeln!(f, "#undef {name}")?;
     writeln!(f, "const {ty} {name} = {name_undef};")?;
     writeln!(f, "#endif")?;
+    writeln!(f)?;
   }
 
   Ok(())

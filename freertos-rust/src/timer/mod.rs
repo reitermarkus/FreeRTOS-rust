@@ -10,7 +10,9 @@ use core::ptr;
 
 use alloc2::boxed::Box;
 
-use crate::alloc::{Dynamic, Static};
+use crate::alloc::Dynamic;
+#[cfg(freertos_feature = "static_allocation")]
+use crate::alloc::Static;
 use crate::lazy_init::{LazyInit, LazyPtr};
 use crate::shim::*;
 use crate::ticks::Ticks;
@@ -142,6 +144,7 @@ impl<'f> LazyInit for Timer<'f, Dynamic> {
   }
 }
 
+#[cfg(freertos_feature = "static_allocation")]
 impl LazyInit for Timer<'static, Static> {
   type Storage = StaticTimer_t;
   type Handle = TimerHandle_t;

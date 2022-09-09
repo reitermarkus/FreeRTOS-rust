@@ -3,10 +3,12 @@ use core::marker::PhantomData;
 use alloc2::{boxed::Box};
 
 use crate::{
-  alloc::{Dynamic, Static},
+  alloc::Dynamic,
   CurrentTask,
   lazy_init::{LazyPtr, LazyInit},
 };
+#[cfg(freertos_feature = "static_allocation")]
+use crate::alloc::Static;
 
 use super::{Task, TaskPriority, TaskName, TaskMeta, MINIMAL_STACK_SIZE};
 
@@ -97,6 +99,7 @@ impl TaskBuilder<'static> {
   /// TASK.start();
   /// ```
   #[must_use = "task must be started"]
+  #[cfg(freertos_feature = "static_allocation")]
   pub const unsafe fn create_static<const STACK_SIZE: usize>(self, f: fn(&mut CurrentTask)) -> Task<Static, STACK_SIZE> {
     let meta: <Task<Static> as LazyInit>::Data = TaskMeta {
       name: self.name,

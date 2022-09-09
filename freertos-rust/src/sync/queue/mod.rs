@@ -7,7 +7,9 @@ use alloc2::sync::Arc;
 
 use crate::FreeRtosError;
 use crate::InterruptContext;
-use crate::alloc::{Dynamic, Static};
+use crate::alloc::Dynamic;
+#[cfg(freertos_feature = "static_allocation")]
+use crate::alloc::Static;
 use crate::lazy_init::{LazyPtr, LazyInit};
 use crate::shim::*;
 use crate::Ticks;
@@ -46,6 +48,7 @@ impl<T, const SIZE: usize> LazyInit for Queue<T, SIZE, Dynamic> {
   }
 }
 
+#[cfg(freertos_feature = "static_allocation")]
 impl<T, const SIZE: usize> LazyInit for Queue<T, SIZE, Static> {
   type Storage = StaticQueue_t;
   type Handle = QueueHandle_t;
@@ -102,6 +105,7 @@ where
     }
 }
 
+#[cfg(freertos_feature = "static_allocation")]
 impl<T: Sized + Send + Copy, const SIZE: usize> Queue<T, SIZE, Static>
 where
   Self: LazyInit<Data = [MaybeUninit<T>; SIZE]>,
@@ -154,6 +158,7 @@ where
     }
 }
 
+#[cfg(freertos_feature = "static_allocation")]
 impl<T: Sized + Send + Copy, const SIZE: usize> Queue<T, SIZE, Static>
 where
   Self: LazyInit<Handle = QueueHandle_t>,

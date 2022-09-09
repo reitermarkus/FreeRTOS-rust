@@ -7,8 +7,9 @@ use std::path::PathBuf;
 use std::process::exit;
 use std::sync::{Mutex, Arc};
 
-use bindgen::{CargoCallbacks, callbacks::{ParseCallbacks, IntKind}};
+use bindgen::{callbacks::{ParseCallbacks, IntKind}};
 
+mod build;
 mod constants;
 
 #[derive(Debug)]
@@ -17,6 +18,7 @@ enum Arg {
   FunctionCall(FunctionCall),
   Cast { expr: Box<Arg>, cast: String },
   Literal(String),
+  Deref { expr: Box<Self>, field: String },
 }
 
 impl Arg {
@@ -37,8 +39,22 @@ impl Arg {
         }
       }
 
-      if let Some((arg, s)) = Self::parse(s) {
-        let s = skip_meta(s);
+      if let Some((mut arg, s)) = Self::parse(s) {
+        let mut s = skip_meta(s);
+
+        match arg {
+          Arg::Variable { .. } | Arg::FunctionCall(_) => {
+            if let Some(s2) = parse_char(s, '-').and_then(|s| parse_char(s, '>')) {
+              let field;
+              (field, s) = parse_ident(s2)?;
+              s = skip_meta(s);
+
+              arg = Arg::Deref { expr: Box::new(arg), field: field.to_owned() };
+            }
+          },
+          _ => (),
+        };
+
         let s = parse_char(s, ')')?;
         return Some((arg, s))
       }
@@ -65,7 +81,7 @@ impl fmt::Display for Arg {
         if cast == "void" {
           write!(f, "drop({})", expr)
         } else {
-          write!(f, "{} as {}", expr, cast)
+          write!(f, "{:#} as {}", expr, cast)
         }
       },
       Self::Variable { name } => {
@@ -76,13 +92,18 @@ impl fmt::Display for Arg {
         } else if name == "eIncrement" {
           write!(f, "eNotifyAction_eIncrement")?;
         } else {
-          write!(f, "{}", name)?;
+          if f.alternate() || name.parse::<usize>().is_ok() {
+            write!(f, "{}", name)?;
+          } else {
+            write!(f, "{}.into()", name)?;
+          }
         }
 
         Ok(())
       },
       Self::FunctionCall(call) => call.fmt(f),
       Self::Literal(lit) => lit.fmt(f),
+      Self::Deref { expr, field } => write!(f, "Deref(unsafe {{ &mut *::core::ptr::addr_of_mut!((*{:#}).{}) }}).convert()", expr, field),
     }
   }
 }
@@ -105,9 +126,13 @@ impl MacroSig {
       s = s2;
     } else {
       loop {
-        let (arg, s2) = parse_ident(s)?;
-        args.push(arg);
-        s = s2;
+        if let Some((arg, s2)) = parse_ident(s) {
+          args.push(arg);
+          s = s2;
+        } else {
+          s = parse_vararg(s)?;
+          args.push("...".to_owned());
+        }
 
         if let Some(s2) = parse_char(s, ',') {
           s = skip_meta(s2);
@@ -261,8 +286,8 @@ fn variable_type(macro_name: &str, variable_name: &str) -> Option<&'static str> 
     "uxQueueLength" | "uxItemSize" | "uxMaxCount" | "uxInitialCount" |
     "uxTopPriority" | "uxPriority" | "uxReadyPriorities" |
     "uxIndexToNotify" | "uxIndexToWaitOn" | "uxIndexToClear" => "UBaseType_t",
-    "pvItemToQueue" | "pvParameters" => "*const ::core::ffi::c_void",
-    "pvBlockToFree" => "*mut ::core::ffi::c_void",
+    "pvItemToQueue" => "*const ::core::ffi::c_void",
+    "pvParameters" | "pvBlockToFree" => "*mut ::core::ffi::c_void",
     "pcName" => "*const ::core::ffi::c_char",
     "xMutex" | "xQueue" => "QueueHandle_t",
     "xSemaphore" => "SemaphoreHandle_t",
@@ -279,11 +304,12 @@ fn variable_type(macro_name: &str, variable_name: &str) -> Option<&'static str> 
     "pvTaskToDelete" | "pvBuffer" => "*mut ::core::ffi::c_void",
     "pucQueueStorage" => "*mut u8",
     "pxQueueBuffer" => "*mut StaticQueue_t",
+    "pxPendYield" => "*mut BaseType_t",
     "pxSemaphoreBuffer" | "pxMutexBuffer" | "pxStaticSemaphore" => "*mut StaticSemaphore_t",
     "x" if macro_name.ends_with("_CRITICAL_FROM_ISR") => "UBaseType_t",
     "x" if macro_name.ends_with("CLEAR_INTERRUPT_MASK_FROM_ISR") => "UBaseType_t",
     "x" if macro_name.ends_with("YIELD_FROM_ISR") => "BaseType_t",
-    "x" if macro_name == "xTaskCreateRestricted" => "TaskParameters_t",
+    "x" if macro_name == "xTaskCreateRestricted" => "*mut TaskParameters_t",
     "xClearCountOnExit" => "BaseType_t",
     _ => return None,
   })
@@ -292,6 +318,10 @@ fn variable_type(macro_name: &str, variable_name: &str) -> Option<&'static str> 
 fn return_type(macro_name: &str) -> Option<&'static str> {
   if macro_name.contains("GetMutexHolder") {
     return Some("TaskHandle_t")
+  }
+
+  if macro_name.starts_with("portGET_RUN_TIME_COUNTER_VALUE") {
+    return Some("::core::ffi::c_ulong")
   }
 
   if macro_name.starts_with("port") && macro_name.ends_with("_PRIORITY") {
@@ -417,7 +447,23 @@ struct Callbacks {
 }
 
 impl ParseCallbacks for Callbacks {
-  fn int_macro(&self, name: &str, _value: i64) -> Option<IntKind> {
+  fn item_name(&self, name: &str) -> Option<String> {
+    Some(match name {
+      "pcTaskGetTaskName" => "pcTaskGetName",
+      "pcTimerGetTimerName" => "pcTimerGetName",
+      "xTimerGetPeriod" => {
+        println!(r#"cargo:rustc-cfg=freertos_feature="timer_get_period""#);
+        return None
+      }
+      _ => return None
+    }.to_owned())
+  }
+
+  fn int_macro(&self, name: &str, value: i64) -> Option<IntKind> {
+    if name == "configUSE_STATIC_ALLOCATION" && value != 0 {
+      println!(r#"cargo:rustc-cfg=freertos_feature="static_allocation""#);
+    }
+
     match name {
       "configMAX_PRIORITIES" => Some(IntKind::U8),
       "configMINIMAL_STACK_SIZE" | "configTIMER_TASK_STACK_DEPTH" => Some(IntKind::U16),
@@ -454,6 +500,7 @@ impl ParseCallbacks for Callbacks {
       name.starts_with("configAssert") ||
       name.starts_with("portTASK_FUNCTION") ||
       name.ends_with("_TCB") ||
+      name == "CAST_USER_ADDR_T" ||
       name == "vSemaphoreCreateBinary" {
       return;
     }
@@ -465,7 +512,7 @@ impl ParseCallbacks for Callbacks {
     if let Some(macro_body) = macro_body.map(|rhs| rhs.0) {
 
       writeln!(f, "#[allow(non_snake_case)]").unwrap();
-      writeln!(f, "#[inline]").unwrap();
+      writeln!(f, "#[inline(always)]").unwrap();
       write!(f, r#"pub unsafe extern "C" fn {}("#, name).unwrap();
       for (i, arg) in macro_sig.arguments.iter().enumerate() {
         if i > 0 {
@@ -521,20 +568,7 @@ fn main() {
     return
   };
 
-  let mut heap = None;
-  for i in 1..=5 {
-    if env::var(&format!("CARGO_FEATURE_HEAP_{i}")).is_ok() {
-      if let Some(h) = heap {
-        eprintln!("Features `heap_{h}` and `heap_{i}` are mutually exclusive.");
-        exit(1);
-      }
 
-      heap = Some(i);
-    }
-  }
-  let heap = format!("heap_{}.c", heap.unwrap_or(4));
-
-  let mut freertos_builder = freertos_cargo_build::Builder::new();
   let freertos_config = if let Ok(freertos_config) = env::var("FREERTOS_CONFIG") {
     PathBuf::from(freertos_config)
   } else {
@@ -542,14 +576,10 @@ fn main() {
     out_dir.clone()
   };
 
-  freertos_builder.get_cc().define("RUST", None);
 
-  freertos_builder.freertos(&freertos_source);
-  freertos_builder.freertos_config(&freertos_config);
-  freertos_builder.freertos_shim(&shim_dir);
-  freertos_builder.heap(heap);
+  let (cc, bindgen) = build::builders(freertos_source, freertos_config);
 
-  if let Err(err) = freertos_builder.compile() {
+  if let Err(err) = cc.try_compile("freertos") {
     eprintln!("Compilation failed: {}", err);
     exit(1);
   }
@@ -558,16 +588,9 @@ fn main() {
 
   let bindings = out_dir.join("shim.rs");
 
-  bindgen::builder()
-    .use_core()
-    .ctypes_prefix("::core::ffi")
-    .clang_arg(format!("-I{}", freertos_source.join("include").display()))
-    .clang_arg(format!("-I{}", freertos_builder.get_freertos_port_dir().display()))
-    .clang_arg(format!("-I{}", freertos_config.display()))
-    .clang_arg(format!("-DRUST"))
+  bindgen
     .header(shim_dir.join("shim.c").display().to_string())
     .header(constants.display().to_string())
-    .parse_callbacks(Box::new(CargoCallbacks))
     .parse_callbacks(Box::new(Callbacks {
       function_macros: function_macros.clone(),
     }))
@@ -580,7 +603,7 @@ fn main() {
       exit(1);
     });
 
-  let function_macros = function_macros.lock().unwrap().join("\n");
+  let function_macros = function_macros.lock().unwrap().join("\n\n");
 
   let mut f = fs::OpenOptions::new()
     .write(true)

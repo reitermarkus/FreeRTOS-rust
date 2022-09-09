@@ -11,7 +11,6 @@ use crate::shim::pdFALSE;
 use crate::shim::pdPASS;
 use crate::shim::xTimerChangePeriod;
 use crate::shim::xTimerChangePeriodFromISR;
-use crate::shim::xTimerGetPeriod;
 use crate::shim::xTimerIsTimerActive;
 use crate::shim::xTimerStart;
 use crate::shim::xTimerStartFromISR;
@@ -98,7 +97,9 @@ impl TimerHandle {
   }
 
   /// Get the timer's period.
+  #[cfg(freertos_feature = "timer_get_period")]
   pub fn period(&self) -> Ticks {
+    use crate::shim::xTimerGetPeriod;
     Ticks::new(unsafe { xTimerGetPeriod(self.as_ptr()) })
   }
 

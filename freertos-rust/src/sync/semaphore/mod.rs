@@ -3,7 +3,9 @@ use core::marker::PhantomData;
 use core::mem::MaybeUninit;
 use core::ops::Deref;
 
-use crate::alloc::{Dynamic, Static};
+use crate::alloc::Dynamic;
+#[cfg(freertos_feature = "static_allocation")]
+use crate::alloc::Static;
 use crate::lazy_init::{LazyPtr, LazyInit};
 use crate::shim::*;
 
@@ -18,7 +20,7 @@ pub struct Binary {}
 
 /// Marker type for a counting semaphore.
 #[non_exhaustive]
-pub struct Counting<const MAX: u32, const INITIAL: u32> {}
+pub struct Counting<const MAX: usize, const INITIAL: usize> {}
 
 /// A counting or binary semaphore.
 pub struct Semaphore<T, A = Dynamic>
@@ -50,6 +52,7 @@ macro_rules! impl_semaphore {
       }
     }
 
+    #[cfg(freertos_feature = "static_allocation")]
     impl<$(const $max: $max_ty, const $initial: $initial_ty,)*> Semaphore<$semaphore$(<$max, $initial>)*, Static>
     where
       Self: LazyInit<Data = ()>,
@@ -96,7 +99,7 @@ macro_rules! impl_semaphore {
       type Data = ();
 
       fn init(_data: &UnsafeCell<Self::Data>, _storage: &UnsafeCell<MaybeUninit<Self::Storage>>) -> Self::Ptr {
-        let ptr = unsafe { $create($($max, $initial)*) };
+        let ptr = unsafe { $create($($max as _, $initial as _)*) };
         assert!(!ptr.is_null());
 
         unsafe { Self::Ptr::new_unchecked(ptr) }
@@ -107,6 +110,7 @@ macro_rules! impl_semaphore {
       }
     }
 
+    #[cfg(freertos_feature = "static_allocation")]
     impl$(<const $max: $max_ty, const $initial: $initial_ty>)* LazyInit for Semaphore<$semaphore$(<$max, $initial>)*, Static> {
       type Storage = StaticSemaphore_t;
       type Handle = SemaphoreHandle_t;
@@ -115,7 +119,7 @@ macro_rules! impl_semaphore {
       fn init(_data: &UnsafeCell<Self::Data>, storage: &UnsafeCell<MaybeUninit<Self::Storage>>) -> Self::Ptr {
         unsafe {
           let storage = &mut *storage.get();
-          let ptr = $create_static($($max, $initial,)* storage.as_mut_ptr());
+          let ptr = $create_static($($max as _, $initial as _,)* storage.as_mut_ptr());
           assert!(!ptr.is_null());
           Self::Ptr::new_unchecked(ptr)
         }
@@ -145,7 +149,7 @@ impl_semaphore!(
 );
 
 impl_semaphore!(
-  Counting<const MAX: u32, const INITIAL: u32>,
+  Counting<const MAX: usize, const INITIAL: usize>,
   xSemaphoreCreateCounting,
   xSemaphoreCreateCountingStatic,
   new_counting,

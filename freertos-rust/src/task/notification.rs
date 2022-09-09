@@ -1,5 +1,4 @@
 use crate::shim::{
-  UBaseType_t,
   eNotifyAction,
   eNotifyAction_eNoAction,
   eNotifyAction_eSetBits,
@@ -28,7 +27,7 @@ pub enum TaskNotification {
 }
 
 impl TaskNotification {
-  pub(crate) fn to_freertos(&self) -> (UBaseType_t, eNotifyAction) {
+  pub(crate) fn to_freertos(&self) -> (u32, eNotifyAction) {
     match *self {
       TaskNotification::NoAction => (0, eNotifyAction_eNoAction),
       TaskNotification::SetBits(v) => (v, eNotifyAction_eSetBits),

@@ -90,6 +90,6 @@ impl CurrentTask {
 impl DelayMs<u32> for CurrentTask {
   fn delay_ms(&mut self, ms: u32) {
     // Round up so the delay is at least the given amount.
-    self.delay((ms + portTICK_PERIOD_MS - 1) / portTICK_PERIOD_MS)
+    self.delay((ms as TickType_t + portTICK_PERIOD_MS - 1) / portTICK_PERIOD_MS)
   }
 }

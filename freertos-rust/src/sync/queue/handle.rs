@@ -100,7 +100,7 @@ impl<T> QueueHandle<T> {
   }
 
   /// Get the number of messages in the queue.
-  pub fn len(&self) -> u32 {
-    unsafe { uxQueueMessagesWaiting(self.as_ptr()) }
+  pub fn len(&self) -> usize {
+    unsafe { uxQueueMessagesWaiting(self.as_ptr()) as usize }
   }
 }

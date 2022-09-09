@@ -94,12 +94,12 @@ impl TaskHandle {
   /// # Panics
   ///
   /// This panics if `index` is not within \[0, `configTASK_NOTIFICATION_ARRAY_ENTRIES`\).
-  pub fn notify_indexed(&self, index: u32, notification: TaskNotification) -> Result<(), FreeRtosError> {
-    assert!(index < configTASK_NOTIFICATION_ARRAY_ENTRIES);
+  pub fn notify_indexed(&self, index: usize, notification: TaskNotification) -> Result<(), FreeRtosError> {
+    assert!(index < configTASK_NOTIFICATION_ARRAY_ENTRIES as _);
 
     let (value, action) = notification.to_freertos();
 
-    match unsafe { freertos_rs_task_notify_indexed(self.as_ptr(), index, value, action) } {
+    match unsafe { freertos_rs_task_notify_indexed(self.as_ptr(), index as _, value, action) } {
       pdPASS => Ok(()),
       _ => Err(FreeRtosError::QueueFull),
     }
@@ -138,18 +138,18 @@ impl TaskHandle {
     /// This panics if `index` is not within \[0, `configTASK_NOTIFICATION_ARRAY_ENTRIES`\).
     pub fn notify_indexed_from_isr(
       &self,
-      index: u32,
+      index: usize,
       notification: TaskNotification,
       ic: &mut InterruptContext,
     ) -> Result<(), FreeRtosError> {
-      assert!(index < configTASK_NOTIFICATION_ARRAY_ENTRIES);
+      assert!(index < configTASK_NOTIFICATION_ARRAY_ENTRIES as _);
 
       let (value, action) = notification.to_freertos();
 
       match unsafe {
         freertos_rs_task_notify_indexed_from_isr(
           self.as_ptr(),
-          index,
+          index as _,
           value,
           action,
           ic.as_ptr(),
@@ -161,8 +161,8 @@ impl TaskHandle {
     }
 
   /// Get the minimum amount of stack that was ever left on this task.
-  pub fn stack_high_water_mark(&self) -> u32 {
-    unsafe { uxTaskGetStackHighWaterMark(self.as_ptr()) }
+  pub fn stack_high_water_mark(&self) -> usize {
+    unsafe { uxTaskGetStackHighWaterMark(self.as_ptr()) as _ }
   }
 
   /// Clear pending notifications for this task.

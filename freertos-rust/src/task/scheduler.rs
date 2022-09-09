@@ -121,12 +121,12 @@ impl Scheduler {
           state: t.eCurrentState.into(),
           current_priority: unsafe { TaskPriority::new_unchecked(t.uxCurrentPriority as u8) },
           base_priority: unsafe { TaskPriority::new_unchecked(t.uxBasePriority as u8) },
-          run_time_counter: t.ulRunTimeCounter,
+          run_time_counter: t.ulRunTimeCounter.into(),
           stack_high_water_mark: t.usStackHighWaterMark,
         }
       })
       .collect();
 
-    SystemState { tasks, total_run_time }
+    SystemState { tasks, total_run_time: total_run_time.into() }
   }
 }

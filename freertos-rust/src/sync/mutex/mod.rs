@@ -4,7 +4,9 @@ use core::marker::PhantomData;
 use core::mem::MaybeUninit;
 use core::ops::{Deref, DerefMut};
 
-use crate::alloc::{Dynamic, Static};
+use crate::alloc::Dynamic;
+#[cfg(freertos_feature = "static_allocation")]
+use crate::alloc::Static;
 use crate::lazy_init::{LazyInit, LazyPtr};
 use crate::shim::*;
 
@@ -66,6 +68,7 @@ macro_rules! impl_mutex {
       }
     }
 
+    #[cfg(freertos_feature = "static_allocation")]
     impl<T: ?Sized> LazyInit for $mutex<T, Static> {
       type Storage = StaticSemaphore_t;
       type Handle = SemaphoreHandle_t;
@@ -115,6 +118,7 @@ macro_rules! impl_mutex {
       }
     }
 
+    #[cfg(freertos_feature = "static_allocation")]
     impl<T> $mutex<T, Static>
     where
       Self: LazyInit<Data = T>,

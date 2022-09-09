@@ -89,3 +89,10 @@ pub fn parse_ident(s: &str) -> Option<(String, &str)> {
     Some((ident, s))
   }
 }
+
+pub fn parse_vararg(s: &str) -> Option<&str> {
+  let s = parse_char(s, '.')?;
+  let s = parse_char(s, '.')?;
+  let s = parse_char(s, '.')?;
+  Some(s)
+}
