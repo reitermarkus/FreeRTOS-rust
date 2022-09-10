@@ -61,6 +61,9 @@ pub mod task;
 pub mod timer;
 pub use crate::timer::*;
 
+mod hooks;
+pub use hooks::{set_tick_hook, set_idle_hook};
+
 
 #[cfg(any(feature = "time", feature = "sync"))]
 mod ticks;
@@ -78,4 +81,4 @@ pub use crate::task::*;
 #[cfg(any(feature = "time", feature = "sync"))]
 pub use crate::ticks::*;
 
-pub use crate::utils::cpu_clock_hz;
+pub use utils::cpu_clock_hz;

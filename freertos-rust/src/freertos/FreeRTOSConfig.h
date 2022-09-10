@@ -46,10 +46,14 @@
 #define configUSE_IDLE_HOOK 1
 #define configUSE_TICK_HOOK 1
 #define configUSE_PREEMPTION 1
+#define configUSE_COUNTING_SEMAPHORES 1
 #define configUSE_MUTEXES 1
 #define configUSE_RECURSIVE_MUTEXES 1
 #define configSUPPORT_STATIC_ALLOCATION 1
 #define configUSE_TASK_NOTIFICATIONS 1
+#define configUSE_TIMERS 1
+#define configTIMER_TASK_PRIORITY 3
+#define configTIMER_QUEUE_LENGTH 5
 #define INCLUDE_uxTaskPriorityGet 1
 #define INCLUDE_vTaskDelay 1
 #define INCLUDE_vTaskPrioritySet 1

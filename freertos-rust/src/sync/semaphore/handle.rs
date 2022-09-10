@@ -42,11 +42,13 @@ impl SemaphoreHandle {
   ///
   /// - `ptr` must point to a valid semaphore.
   /// - The semaphore must not be deleted for the lifetime `'a` of the returned `SemaphoreHandle`.
+  #[inline]
   pub const unsafe fn from_ptr<'a>(ptr: SemaphoreHandle_t) -> &'a Self {
     &*ptr.cast::<Self>()
   }
 
   /// Get the raw semaphore handle.
+  #[inline]
   pub const fn as_ptr(&self) -> SemaphoreHandle_t {
     ptr::addr_of!(self.0).cast_mut()
   }

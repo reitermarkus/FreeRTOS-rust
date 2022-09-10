@@ -37,11 +37,13 @@ impl TaskHandle {
   ///
   /// - `ptr` must point to a valid task.
   /// - The task must not be deleted for the lifetime `'a` of the returned `TaskHandle`.
+  #[inline]
   pub const unsafe fn from_ptr<'a>(ptr: TaskHandle_t) -> &'a Self {
     &*ptr.cast::<Self>()
   }
 
   /// Get the raw task handle.
+  #[inline]
   pub const fn as_ptr(&self) -> TaskHandle_t {
     ptr::addr_of!(self.0).cast_mut()
   }
@@ -61,11 +63,13 @@ impl TaskHandle {
   }
 
   /// Suspend execution of the task.
+  #[inline]
   pub fn suspend(&self) {
     unsafe { vTaskSuspend(self.as_ptr()) }
   }
 
   /// Resume execution of the task.
+  #[inline]
   pub fn resume(&self) {
     unsafe { vTaskResume(self.as_ptr()) }
   }
@@ -106,62 +110,63 @@ impl TaskHandle {
     }
   }
 
-    /// Notify this task from an interrupt.
-    pub fn notify_from_isr(
-        &self,
-        notification: TaskNotification,
-        ic: &mut InterruptContext,
-    ) -> Result<(), FreeRtosError> {
-      let (value, action) = notification.to_freertos();
+  /// Notify this task from an interrupt.
+  pub fn notify_from_isr(
+    &self,
+    notification: TaskNotification,
+    ic: &mut InterruptContext,
+  ) -> Result<(), FreeRtosError> {
+    let (value, action) = notification.to_freertos();
 
-      match unsafe {
-        xTaskNotifyFromISR(
-          self.as_ptr(),
-          value,
-          action,
-          ic.as_ptr(),
-        )
-      } {
-        pdPASS => Ok(()),
-        _ => Err(FreeRtosError::QueueFull),
-      }
+    match unsafe {
+      xTaskNotifyFromISR(
+        self.as_ptr(),
+        value,
+        action,
+        ic.as_ptr(),
+      )
+    } {
+      pdPASS => Ok(()),
+      _ => Err(FreeRtosError::QueueFull),
     }
+  }
 
-    /// Notify this task from an interrupt with the given index.
-    ///
-    /// # Errors
-    ///
-    /// This can only fail when sending [`TaskNotification::SetValue`] and
-    /// the task already has pending notifications.
-    ///
-    /// # Panics
-    ///
-    /// This panics if `index` is not within \[0, `configTASK_NOTIFICATION_ARRAY_ENTRIES`\).
-    pub fn notify_indexed_from_isr(
-      &self,
-      index: usize,
-      notification: TaskNotification,
-      ic: &mut InterruptContext,
-    ) -> Result<(), FreeRtosError> {
-      assert!(index < configTASK_NOTIFICATION_ARRAY_ENTRIES as _);
+  /// Notify this task from an interrupt with the given index.
+  ///
+  /// # Errors
+  ///
+  /// This can only fail when sending [`TaskNotification::SetValue`] and
+  /// the task already has pending notifications.
+  ///
+  /// # Panics
+  ///
+  /// This panics if `index` is not within \[0, `configTASK_NOTIFICATION_ARRAY_ENTRIES`\).
+  pub fn notify_indexed_from_isr(
+    &self,
+    index: usize,
+    notification: TaskNotification,
+    ic: &mut InterruptContext,
+  ) -> Result<(), FreeRtosError> {
+    assert!(index < configTASK_NOTIFICATION_ARRAY_ENTRIES as _);
 
-      let (value, action) = notification.to_freertos();
+    let (value, action) = notification.to_freertos();
 
-      match unsafe {
-        freertos_rs_task_notify_indexed_from_isr(
-          self.as_ptr(),
-          index as _,
-          value,
-          action,
-          ic.as_ptr(),
-        )
-      } {
-        pdPASS => Ok(()),
-        _ => Err(FreeRtosError::QueueFull),
-      }
+    match unsafe {
+      freertos_rs_task_notify_indexed_from_isr(
+        self.as_ptr(),
+        index as _,
+        value,
+        action,
+        ic.as_ptr(),
+      )
+    } {
+      pdPASS => Ok(()),
+      _ => Err(FreeRtosError::QueueFull),
     }
+  }
 
   /// Get the minimum amount of stack that was ever left on this task.
+  #[inline]
   pub fn stack_high_water_mark(&self) -> usize {
     unsafe { uxTaskGetStackHighWaterMark(self.as_ptr()) as _ }
   }
@@ -169,6 +174,7 @@ impl TaskHandle {
   /// Clear pending notifications for this task.
   ///
   /// Returns whether a pending notification was cleared.
+  #[inline]
   pub fn clear_notification(&self) -> bool {
     unsafe { xTaskNotifyStateClear(self.as_ptr()) == pdTRUE }
   }

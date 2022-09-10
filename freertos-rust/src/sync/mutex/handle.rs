@@ -38,6 +38,7 @@ macro_rules! impl_mutex_handle {
       /// - `ptr` must point to a valid queue.
       /// - `T` must be zero-sized.
       #[doc = concat!("- The mutex must not be deleted for the lifetime of the returned `" , stringify!($handle), "`.")]
+      #[inline]
       pub const unsafe fn from_ptr(ptr: SemaphoreHandle_t) -> Self {
         Self {
           ptr,
@@ -48,6 +49,7 @@ macro_rules! impl_mutex_handle {
 
     impl<T: ?Sized> $handle<T> {
       /// Get the raw queue handle.
+      #[inline]
       pub const fn as_ptr(&self) -> SemaphoreHandle_t {
         self.ptr
       }
@@ -95,7 +97,7 @@ macro_rules! impl_mutex_handle {
       }
 
       /// Try locking the mutex and return immediately.
-      #[inline(always)]
+      #[inline]
       pub fn try_lock(&self) -> Result<$guard<'_, T>, FreeRtosError> {
         self.timed_lock(Ticks::new(0))
       }

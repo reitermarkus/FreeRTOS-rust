@@ -592,6 +592,7 @@ fn main() {
   bindgen
     .header(shim_dir.join("shim.c").display().to_string())
     .header(constants.display().to_string())
+    .generate_comments(false)
     .parse_callbacks(Box::new(Callbacks {
       function_macros: function_macros.clone(),
     }))

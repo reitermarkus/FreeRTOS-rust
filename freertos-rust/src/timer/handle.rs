@@ -32,16 +32,18 @@ impl TimerHandle {
   ///
   /// - `ptr` must point to a valid timer.
   /// - The timer must not be deleted for the lifetime `'a` of the returned `TimerHandle`.
+  #[inline]
   pub const unsafe fn from_ptr<'a>(ptr: TimerHandle_t) -> &'a Self {
     &*ptr.cast::<Self>()
   }
 
   /// Get the raw timer handle.
+  #[inline]
   pub const fn as_ptr(&self) -> TimerHandle_t {
     ptr::addr_of!(self.0).cast_mut()
   }
 
-  /// Get the timer's name if is has one.
+  /// Get the timer's name if it has one.
   #[inline]
   pub fn name(&self) -> Option<&CStr> {
     unsafe {

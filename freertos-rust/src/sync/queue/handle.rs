@@ -40,16 +40,19 @@ impl<T> QueueHandle<T> {
   ///
   /// - `ptr` must point to a valid queue.
   /// - The queue must not be deleted for the lifetime `'a` of the returned `QueueHandle`.
+  #[inline]
   pub const unsafe fn from_ptr<'a>(ptr: QueueHandle_t) -> &'a Self {
     &*ptr.cast::<Self>()
   }
 
   /// Get the raw queue handle.
+  #[inline]
   pub const fn as_ptr(&self) -> QueueHandle_t {
     ptr::addr_of!(self.0).cast_mut()
   }
 
   /// Assign a name to the queue and add it to the registry.
+  #[inline]
   pub fn add_to_registry(&self, name: &'static CStr) {
     unsafe { vQueueAddToRegistry(self.as_ptr(), name.as_ptr()) }
   }
@@ -102,6 +105,7 @@ impl<T> QueueHandle<T> {
   }
 
   /// Get the number of messages in the queue.
+  #[inline]
   pub fn len(&self) -> usize {
     unsafe { uxQueueMessagesWaiting(self.as_ptr()) as usize }
   }
