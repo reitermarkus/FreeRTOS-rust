@@ -22,7 +22,7 @@ pub struct Binary {}
 #[non_exhaustive]
 pub struct Counting<const MAX: usize, const INITIAL: usize> {}
 
-/// A counting or binary semaphore.
+/// A binary or counting semaphore.
 pub struct Semaphore<T, A = Dynamic>
 where
   Self: LazyInit,
@@ -33,7 +33,7 @@ where
 
 macro_rules! impl_semaphore {
   (
-    $semaphore:ident $(<const $max:ident: $max_ty:ident, const $initial:ident: $initial_ty:ident>)?,
+    $semaphore:ident $(<const $max:ident: $max_ty:ident = $max_val:literal, const $initial:ident: $initial_ty:ident = $initial_val:literal>)?,
     $create:ident,
     $create_static:ident,
     $new_fn:ident,
@@ -66,10 +66,10 @@ macro_rules! impl_semaphore {
       /// # Examples
       ///
       /// ```
-      /// use freertos_rust::sync::Semaphore;
+      #[doc = concat!("use freertos_rust::{alloc::Static, sync::{Semaphore, ", stringify!($semaphore), "}};")]
       ///
       /// // SAFETY: Assignment to a `static` ensures a `'static` lifetime.
-      #[doc = concat!("static SEMAPHORE: Semaphore<", stringify!($semaphore), ", Static> = unsafe {")]
+      #[doc = concat!("static SEMAPHORE: Semaphore<", stringify!($semaphore), $("<", stringify!($max_val), ", ", stringify!($initial_val), ">",)* ", Static> = unsafe {")]
       #[doc = concat!("  Semaphore::", stringify!($new_fn_static), "()")]
       /// };
       /// ```
@@ -149,7 +149,7 @@ impl_semaphore!(
 );
 
 impl_semaphore!(
-  Counting<const MAX: usize, const INITIAL: usize>,
+  Counting<const MAX: usize = 4, const INITIAL: usize = 0>,
   xSemaphoreCreateCounting,
   xSemaphoreCreateCountingStatic,
   new_counting,

@@ -133,12 +133,12 @@ macro_rules! impl_mutex {
       /// # Examples
       ///
       /// ```
-      /// use freertos_rust::{alloc::Static, sync::Mutex};
+      #[doc = concat!("use freertos_rust::{alloc::Static, sync::", stringify!($mutex), "};")]
       ///
       /// // SAFETY: Assignment to a `static` ensures a `'static` lifetime.
       #[doc = concat!("static MUTEX: ", stringify!($mutex), "<u32, Static> = unsafe {")]
       #[doc = concat!("  ", stringify!($mutex), "::new_static(123)")]
-      /// }
+      /// };
       /// ```
       pub const unsafe fn new_static(data: T) -> Self {
         Self {

@@ -6,8 +6,8 @@ use core::ptr;
 
 use crate::FreeRtosError;
 use crate::InterruptContext;
-use crate::shim::QueueHandle_t;
 use crate::lazy_init::PtrType;
+use crate::ffi::QueueHandle_t;
 use crate::shim::{
   pdTRUE,
   errQUEUE_FULL,
@@ -21,7 +21,9 @@ use crate::Ticks;
 
 /// A handle for managing a queue.
 ///
-/// See [`Queue`](crate::Queue) for the preferred owned version.
+/// See [`Queue`](crate::sync::Queue) for the preferred owned version.
+///
+/// This type is compatible with a raw FreeRTOS [`QueueHandle_t`].
 #[repr(transparent)]
 pub struct QueueHandle<T>(<QueueHandle_t as PtrType>::Type, PhantomData<T>);
 

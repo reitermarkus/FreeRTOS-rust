@@ -27,7 +27,7 @@ fn default_stack_overflow_hook(task: &TaskHandle, task_name: &str) {
 /// use freertos_rust::task::{self, TaskHandle};
 ///
 /// fn my_stack_overflow_hook(task: &TaskHandle, task_name: &str) {
-///   panic!("Stack overflow detected in task '{}' at {:?}.", task_name, task.as_raw_handle());
+///   panic!("Stack overflow detected in task '{}' at {:?}.", task_name, task.as_ptr());
 /// }
 ///
 /// task::set_stack_overflow_hook(my_stack_overflow_hook);

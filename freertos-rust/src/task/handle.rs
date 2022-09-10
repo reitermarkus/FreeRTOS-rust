@@ -20,7 +20,8 @@ use crate::shim::xTaskNotify;
 ///
 /// See [`Task`](crate::task::Task) for the preferred owned version.
 ///
-/// `TaskHandle` is compatible with a raw FreeRTOS task.
+/// This type is compatible with a raw FreeRTOS [`TaskHandle_t`].
+#[repr(transparent)]
 pub struct TaskHandle(<TaskHandle_t as PtrType>::Type);
 
 impl fmt::Debug for TaskHandle {

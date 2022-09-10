@@ -54,6 +54,6 @@ mod tests {
 
   #[test]
   fn duration_max_gte_port_max_delay() {
-    assert!(Ticks::from(Duration::MAX) >= Ticks::MAX)
+    assert_eq!(Ticks::from(Duration::MAX), Ticks::new(portMAX_DELAY));
   }
 }

@@ -21,7 +21,7 @@ use crate::shim::xTimerStopFromISR;
 ///
 /// See [`Timer`](crate::timer::Timer) for the preferred owned version.
 ///
-/// This type is compatible with a raw FreeRTOS timer.
+/// This type is compatible with a raw FreeRTOS [`TimerHandle_t`].
 #[repr(transparent)]
 pub struct TimerHandle(<TimerHandle_t as PtrType>::Type);
 

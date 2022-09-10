@@ -3,6 +3,7 @@
 //! # Examples
 //!
 //! ```
+//! use core::time::Duration;
 //! use freertos_rust::task::{Task, Scheduler};
 //!
 //! Task::new().name("hello").stack_size(128).create(|task| {

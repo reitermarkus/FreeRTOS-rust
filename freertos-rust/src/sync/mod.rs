@@ -34,9 +34,12 @@
 //! ## Binary Semaphore
 //!
 //! ```
+//! use core::time::Duration;
+//! use freertos_rust::sync::{Binary, Semaphore};
+//!
 //! static S: Semaphore<Binary> = Semaphore::new_binary();
 //!
-//! S.take().unwrap();
+//! S.take(Duration::MAX).unwrap();
 //!
 //! // ...
 //!
@@ -46,9 +49,12 @@
 //! ## Counting Semaphore
 //!
 //! ```
-//! static S: Semaphore<Counting<4, 4>> = Semaphore::new_binary();
+//! use core::time::Duration;
+//! use freertos_rust::sync::{Counting, Semaphore};
 //!
-//! let _guard = S.lock().unwrap();
+//! static S: Semaphore<Counting<4, 4>> = Semaphore::new_counting();
+//!
+//! let _guard = S.lock(Duration::MAX).unwrap();
 //!
 //! // ...
 //!

@@ -21,9 +21,11 @@ use crate::{
 
 use super::SemaphoreGuard;
 
-/// A handle for managing a semaphore.
+/// A handle for managing a binary or counting semaphore.
 ///
-/// See [`Semaphore`](crate::Semaphore) for the preferred owned version.
+/// See [`Semaphore`](crate::sync::Semaphore) for the preferred owned version.
+///
+/// This type is compatible with a raw FreeRTOS [`SemaphoreHandle_t`].
 #[repr(transparent)]
 pub struct SemaphoreHandle(<SemaphoreHandle_t as PtrType>::Type);
 

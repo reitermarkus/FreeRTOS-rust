@@ -76,7 +76,8 @@ impl TimerBuilder<'static> {
   /// # Examples
   ///
   /// ```
-  /// use freertos_rust::{alloc::Static, timer::Timer};
+  /// use core::time::Duration;
+  /// use freertos_rust::{alloc::Static, timer::{Timer, TimerHandle}};
   ///
   /// fn my_timer_callback(timer: &TimerHandle) {
   ///   // ...
@@ -86,10 +87,12 @@ impl TimerBuilder<'static> {
   /// static TIMER: Timer<Static> = unsafe {
   ///   Timer::new().period(200).create_static(my_timer_callback)
   /// };
+  ///
+  /// TIMER.start(Duration::MAX);
   /// ```
   #[must_use]
   #[cfg(freertos_feature = "static_allocation")]
-  pub const unsafe fn create_static(self, callback: fn(&TimerHandle)) -> Timer<'static, Static> {
+  pub const unsafe fn create_static(self, callback: fn(timer: &TimerHandle)) -> Timer<'static, Static> {
     let meta = TimerMeta {
       name: self.name,
       period: self.period.into(),

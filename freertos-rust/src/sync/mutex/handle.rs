@@ -18,7 +18,7 @@ macro_rules! impl_mutex_handle {
     ///
     #[doc = concat!("See [`", stringify!($mutex), "`](crate::sync::", stringify!($mutex), ") for the preferred owned version.")]
     ///
-    #[doc = concat!("`", stringify!($handle), "<()>` is compatible with a raw FreeRTOS mutex.")]
+    #[doc = concat!("`", stringify!($handle), "<()>` is compatible with a raw FreeRTOS [`SemaphoreHandle_t`].")]
     pub struct $handle<T: ?Sized = ()> {
       ptr: SemaphoreHandle_t,
       data: UnsafeCell<T>,
