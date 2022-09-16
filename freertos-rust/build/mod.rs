@@ -182,6 +182,7 @@ impl fmt::Display for Assignment {
 enum Statement {
   Expr(Arg),
   Assignment(Assignment),
+  DoWhile { block: Vec<Statement>, condition: Arg },
 }
 
 impl Statement {
@@ -203,6 +204,15 @@ impl fmt::Display for Statement {
     match self {
       Self::Expr(expr) => expr.fmt(f),
       Self::Assignment(a) => a.fmt(f),
+      Self::DoWhile { block, condition } => {
+        write!(f, "loop {{")?;
+        for stmt in block {
+          write!(f, "{};", stmt)?;
+        }
+        write!(f, "if ({} as u8 == 0) {{ break }}", condition)?;
+        write!(f, "}}")?;
+        Ok(())
+      }
     }
   }
 }
@@ -220,12 +230,44 @@ impl MacroBody {
       return Some((MacroBody { statements: vec![] }, s))
     }
 
+    if let Some(s) = parse_char(s, 'd').and_then(|s| parse_char(s, 'o')) {
+      let s = skip_meta(s);
+      let (block, s) = Self::parse_block(s)?;
+      let s = skip_meta(s);
+      let (id, s) = parse_ident(s)?;
+      if id == "while" {
+        let s = parse_char(s, '(')?;
+        let (arg, s) = Arg::parse(s)?;
+        let s = parse_char(s, ')')?;
+
+        if s.is_empty() {
+          return Some((
+            MacroBody {
+              statements: vec![
+                Statement::DoWhile {
+                  block,
+                  condition: arg,
+                },
+              ],
+            },
+            s,
+          ))
+        }
+      }
+
+      return None
+    }
+
     if let Some((block, s)) = Self::parse_block(s) {
-      return Some((MacroBody { statements: block }, s))
+      if s.is_empty() {
+        return Some((MacroBody { statements: block }, s))
+      }
     }
 
     if let Some((stmt, s)) = Statement::parse(s) {
-      return Some((MacroBody { statements: vec![stmt] }, s))
+      if s.is_empty() {
+        return Some((MacroBody { statements: vec![stmt] }, s))
+      }
     }
 
     None
