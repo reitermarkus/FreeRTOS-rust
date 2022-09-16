@@ -24,19 +24,15 @@ pub fn heap() -> PathBuf {
 /// Get the port directory for the target.
 pub fn port() -> PathBuf {
   let target = env::var("TARGET").unwrap_or_default();
-  let target_env = env::var("CARGO_CFG_TARGET_ENV").unwrap_or_default(); // msvc, gnu, ...
-  //let target_family = env::var("CARGO_CFG_TARGET_FAMILY").unwrap_or_default(); // unix, windows
-  let target_arch = env::var("CARGO_CFG_TARGET_ARCH").unwrap_or_default(); // x86_64
-  let target_os = env::var("CARGO_CFG_TARGET_OS").unwrap_or_default(); // none, windows, linux, macos
+  let target_family = env::var("CARGO_CFG_TARGET_FAMILY").unwrap_or_default();
 
-  match (target.as_str(), target_arch.as_str(), target_os.as_str(), target_env.as_str()) {
-    (_, "x86_64", "macos", _) => Path::new("ThirdParty").join("GCC").join("Posix"),
-    (_, "x86_64", "windows", _) => PathBuf::from("MSVC-MingW"),
-    (_, "x86_64", "linux", "gnu") => Path::new("ThirdParty").join("GCC").join("Posix"),
-    ("thumbv7m-none-eabi" | "thumbv7em-none-eabi", _, _, _) => Path::new("GCC").join("ARM_CM3"),
-    ("thumbv7em-none-eabihf", _, _, _) => Path::new("GCC").join("ARM_CM4F"),
-    ("thumbv8m.main-none-eabi", _, _, _) => Path::new("GCC").join("ARM_CM33_NTZ").join("non_secure"),
-    ("thumbv8m.main-none-eabihf", _, _, _) => Path::new("GCC").join("ARM_CM33_NTZ").join("non_secure"),
+  match (target.as_str(), target_family.as_str()) {
+    ("thumbv7m-none-eabi" | "thumbv7em-none-eabi", _) => Path::new("GCC").join("ARM_CM3"),
+    ("thumbv7em-none-eabihf", _) => Path::new("GCC").join("ARM_CM4F"),
+    ("thumbv8m.main-none-eabi", _) => Path::new("GCC").join("ARM_CM33_NTZ").join("non_secure"),
+    ("thumbv8m.main-none-eabihf", _) => Path::new("GCC").join("ARM_CM33_NTZ").join("non_secure"),
+    (_, "unix") => Path::new("ThirdParty").join("GCC").join("Posix"),
+    (_, "windows") => PathBuf::from("MSVC-MingW"),
     _ => {
       eprintln!("Target '{}' is not supported.", target);
       exit(1);
