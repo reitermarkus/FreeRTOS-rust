@@ -15,6 +15,7 @@ use crate::shim::freertos_rs_task_notify_indexed;
 use crate::shim::freertos_rs_task_notify_indexed_from_isr;
 use crate::shim::pdPASS;
 use crate::shim::xTaskNotify;
+use crate::shim::{uxTaskGetTaskNumber, vTaskSetTaskNumber};
 
 /// A handle for managing a task.
 ///
@@ -46,6 +47,18 @@ impl TaskHandle {
   #[inline]
   pub const fn as_ptr(&self) -> TaskHandle_t {
     ptr::addr_of!(self.0).cast_mut()
+  }
+
+  /// Get the number of this task.
+  #[inline]
+  pub fn number(&self) -> usize {
+    unsafe { uxTaskGetTaskNumber(self.as_ptr()) as usize }
+  }
+
+  /// Set the number of this task.
+  #[inline]
+  pub fn set_number(&self, n: usize) {
+    unsafe { vTaskSetTaskNumber(self.as_ptr(), n as _) }
   }
 
   /// Get the name of this task.
