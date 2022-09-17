@@ -6,8 +6,18 @@ use std::fs::{self, File};
 use std::path::PathBuf;
 use std::process::exit;
 use std::sync::{Mutex, Arc};
+use core::num::NonZeroUsize;
 
 use bindgen::{callbacks::{ParseCallbacks, IntKind}};
+use nom::multi::separated_list0;
+use nom::branch::alt;
+use nom::combinator::map;
+use nom::sequence::delimited;
+use nom::combinator::opt;
+use nom::sequence::tuple;
+use nom::{IResult, Needed};
+use nom::multi::many0;
+use nom::sequence::pair;
 
 mod build;
 mod constants;
@@ -109,46 +119,42 @@ impl fmt::Display for Arg {
 }
 
 #[derive(Debug)]
-struct MacroSig {
-  name: String,
-  arguments: Vec<String>,
+struct MacroSig<'t> {
+  name: &'t str,
+  arguments: Vec<&'t str>,
 }
 
-impl MacroSig {
-  pub fn parse(s: &str) -> Option<Self> {
-    let (name, s) = parse_ident(s)?;
+impl<'t> MacroSig<'t> {
+  pub fn parse<'i>(input: &'i [&'t str]) -> IResult<&'i [&'t str], Self> {
+    let (input, name) = identifier(input)?;
 
-    let mut s = parse_char(s, '(')?;
+    let (input, arguments) = delimited(
+      pair(token("("), meta),
+      alt((
+        map(
+          token("..."),
+          |var_arg| vec![var_arg],
+        ),
+        map(
+          tuple((
+            separated_list0(tuple((meta, token(","), meta)), identifier),
+            opt(tuple((tuple((meta, token(","), meta)), token("...")))),
+          )),
+          |(arguments, var_arg)| {
+            let mut arguments = arguments.to_vec();
 
-    let mut args = vec![];
+            if let Some((_, var_arg)) = var_arg {
+              arguments.push(var_arg);
+            }
 
-    if let Some(s2) = parse_char(s, ')') {
-      s = s2;
-    } else {
-      loop {
-        if let Some((arg, s2)) = parse_ident(s) {
-          args.push(arg);
-          s = s2;
-        } else {
-          s = parse_vararg(s)?;
-          args.push("...".to_owned());
-        }
+            arguments
+          },
+        ),
+      )),
+      pair(meta, token(")")),
+    )(input)?;
 
-        if let Some(s2) = parse_char(s, ',') {
-          s = skip_meta(s2);
-          continue
-        }
-
-        s = skip_meta(s);
-        s = parse_char(s, ')')?;
-          break
-      }
-    }
-
-    s = skip_meta(s);
-    parse_end(s)?;
-
-    Some(MacroSig { name, arguments: args })
+    Ok((input, MacroSig { name, arguments }))
   }
 }
 
@@ -220,6 +226,53 @@ impl fmt::Display for Statement {
 #[derive(Debug)]
 struct MacroBody {
   statements: Vec<Statement>,
+}
+
+fn comment<'i, 't>(tokens: &'i [&'t str]) -> IResult<&'i [&'t str], &'t str> {
+  if let Some(token) = tokens.get(0) {
+    if token.starts_with("/*") && token.ends_with("*/") {
+      Ok((&tokens[1..], token))
+    } else {
+      Err(nom::Err::Error(nom::error::Error::new(tokens, nom::error::ErrorKind::Fail)))
+    }
+  } else {
+    Err(nom::Err::Incomplete(Needed::Size(NonZeroUsize::new(1).unwrap())))
+  }
+}
+
+fn meta<'i, 't>(input: &'i [&'t str]) -> IResult<&'i [&'t str], Vec<&'t str>> {
+  many0(comment)(input)
+}
+
+fn identifier<'i, 't>(tokens: &'i [&'t str]) -> IResult<&'i [&'t str], &'t str> {
+  if let Some(token) = tokens.get(0) {
+    let mut it = token.chars();
+    match it.next() {
+      Some('a'..='z' | 'A'..='Z' | '_') if it.all(|c| matches!(c, 'a'..='z' | 'A'..='Z' | '_' | '0'..='9')) => {
+        Ok((&tokens[1..], token))
+      },
+      _ => Err(nom::Err::Error(nom::error::Error::new(tokens, nom::error::ErrorKind::Fail))),
+    }
+  } else {
+    Err(nom::Err::Incomplete(Needed::Size(NonZeroUsize::new(1).unwrap())))
+  }
+}
+
+fn token<'i, 't>(token: &'static str) -> impl Fn(&'i [&'t str]) -> IResult<&'i [&'t str], &'t str>
+where
+  't: 'i,
+{
+  move |tokens: &[&str]| {
+    if let Some(token2) = tokens.get(0) {
+      if token2 == &token {
+        Ok((&tokens[1..], token2))
+      } else{
+        Err(nom::Err::Error(nom::error::Error::new(tokens, nom::error::ErrorKind::AlphaNumeric)))
+      }
+    } else {
+      Err(nom::Err::Incomplete(Needed::Size(NonZeroUsize::new(1).unwrap())))
+    }
+  }
 }
 
 impl MacroBody {
@@ -488,6 +541,59 @@ struct Callbacks {
   function_macros: Arc<Mutex<Vec<String>>>,
 }
 
+fn tokenize_name(input: &[u8]) -> Vec<&str> {
+  let mut tokens = vec![];
+
+  let n = input.len();
+  let mut i = 0;
+
+  'outer: loop {
+    match input.get(i) {
+      Some(b'a'..=b'z' | b'A'..=b'Z' | b'_') => {
+        let start = i;
+        i += 1;
+
+        while let Some(b'a'..=b'z' | b'A'..=b'Z' | b'_' | b'0'..=b'9') = input.get(i) {
+          i += 1;
+        }
+
+        tokens.push(unsafe { str::from_utf8_unchecked(&input[start..i]) });
+      },
+      Some(b'(' | b')' | b',') => {
+        tokens.push(unsafe { str::from_utf8_unchecked(&input[i..(i + 1)]) });
+        i += 1;
+      },
+      Some(b'/') if matches!(input.get(i + 1), Some(b'*')) => {
+        let start = i;
+        i += 2;
+
+        while let Some(c) = input.get(i) {
+          i += 1;
+
+          if *c == b'*' {
+            if let Some(b'/') = input.get(i) {
+              i += 1;
+              tokens.push(unsafe { str::from_utf8_unchecked(&input[start..i]) });
+              break;
+            }
+          }
+        }
+      },
+      Some(b'.') if matches!(input.get(i..(i + 3)), Some(b"...")) => {
+        tokens.push(unsafe { str::from_utf8_unchecked(&input[i..(i + 3)]) });
+        i += 3;
+      },
+      Some(b' ') => {
+        i += 1;
+      },
+      Some(c) => unreachable!("{}", *c as char),
+      None => break,
+    }
+  }
+
+  tokens
+}
+
 impl ParseCallbacks for Callbacks {
   fn item_name(&self, name: &str) -> Option<String> {
     Some(match name {
@@ -516,14 +622,21 @@ impl ParseCallbacks for Callbacks {
   fn func_macro(&self, name: &str, value: &[&[u8]]) {
     use std::fmt::Write;
 
+    dbg!(&name);
+
+    let name = tokenize_name(name.as_bytes());
+
+    let v = value.iter().map(|bytes| str::from_utf8(bytes).unwrap()).collect::<Vec<_>>();
+    dbg!(&v);
+
     let value = value.iter().map(|bytes| str::from_utf8(bytes).unwrap()).collect::<String>();
 
-    eprintln!("{} -> {}", name, value);
+    eprintln!("{:?} -> {}", name, value);
 
-    let macro_sig = MacroSig::parse(name).unwrap();
+    let (_, macro_sig) = MacroSig::parse(&name).unwrap();
     let macro_body = MacroBody::parse(&value);
 
-    let name = &macro_sig.name;
+    let name = macro_sig.name;
 
     if name.starts_with("_") ||
       name == "offsetof" ||
@@ -654,6 +767,8 @@ fn main() {
     .append(true)
     .open(&bindings)
     .unwrap();
+
+    panic!();
 
   f.write_all(function_macros.as_bytes()).unwrap()
 }
