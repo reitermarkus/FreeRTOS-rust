@@ -6,416 +6,27 @@ use std::fs::{self, File};
 use std::path::PathBuf;
 use std::process::exit;
 use std::sync::{Mutex, Arc};
-use core::num::NonZeroUsize;
 
 use bindgen::{callbacks::{ParseCallbacks, IntKind}};
-use nom::multi::{separated_list0, separated_list1};
+use nom::multi::{separated_list0};
 use nom::branch::alt;
 use nom::combinator::map;
 use nom::sequence::delimited;
 use nom::combinator::{opt, eof};
 use nom::sequence::tuple;
-use nom::{IResult, Needed};
-use nom::multi::{many0, many1, fold_many0, fold_many1};
+use nom::IResult;
+use nom::multi::{many0, fold_many0};
 use nom::sequence::pair;
 use nom::sequence::preceded;
 use nom::branch::permutation;
 use nom::multi::many0_count;
+use nom::sequence::terminated;
 
 mod build;
 mod constants;
 
-enum Type<'t> {
-  Identifier(Identifier<'t>),
-  Ptr { ty: Box<Self>, mutable: bool },
-}
-
-fn number_literal<'i, 't>(tokens: &'i [&'t str]) -> IResult<&'i [&'t str], &'t str> {
-  use nom::character::complete::{char, digit1};
-
-  if let Some(token) = tokens.get(0) {
-    let token: &str = token;
-
-    // let decimal = pair(complete::char('.'), digit1);
-    let unsigned = alt((char('u'), char('U')));
-    let long = alt((char('l'), char('L')));
-    let long_long = alt((
-      pair(char('l'), char('l')),
-      pair(char('L'), char('L')),
-    ));
-    let size_t = alt((char('z'), char('Z')));
-
-    let suffix = permutation((
-      opt(map(unsigned, |_| "u")),
-      opt(
-        alt((
-          map(long_long, |_| "ll"),
-          map(long, |_| "l"),
-          map(size_t, |_| "z"),
-        ))
-      )
-    ));
-
-    let res: IResult<&str, (&str, (Option<&str>, Option<&str>), &str)> = tuple((digit1, suffix, eof))(token);
-    dbg!(&tokens);
-
-    if let Ok((_, (n, (unsigned, size), _))) = res {
-      // TODO: Handle suffix.
-      return Ok((&tokens[1..], n))
-    }
-  }
-
-  Err(nom::Err::Error(nom::error::Error::new(tokens, nom::error::ErrorKind::Fail)))
-}
-
-fn string_literal<'i, 't>(tokens: &'i [&'t str]) -> IResult<&'i [&'t str], &'t str> {
-  if let Some(token) = tokens.get(0) {
-    if token.starts_with("\"") && token.ends_with("\"") {
-      return Ok((&tokens[1..], token))
-    }
-  }
-
-  Err(nom::Err::Error(nom::error::Error::new(tokens, nom::error::ErrorKind::Fail)))
-}
-
-#[derive(Debug, Clone)]
-enum Identifier<'t> {
-  Literal(&'t str),
-  Concat(Vec<&'t str>)
-}
-
-fn identifier<'i, 't>(tokens: &'i [&'t str]) -> IResult<&'i [&'t str], &'t str> {
-  if let Some(token) = tokens.get(0) {
-    let mut it = token.chars();
-    if let Some('a'..='z' | 'A'..='Z' | '_') = it.next() {
-      if it.all(|c| matches!(c, 'a'..='z' | 'A'..='Z' | '_' | '0'..='9')) {
-        return Ok((&tokens[1..], token))
-      }
-    }
-  }
-
-  Err(nom::Err::Error(nom::error::Error::new(tokens, nom::error::ErrorKind::Fail)))
-}
-
-impl<'t> Identifier<'t> {
-  pub fn parse<'i>(tokens: &'i [&'t str]) -> IResult<&'i [&'t str], Self> {
-    let (tokens, id) = identifier(tokens)?;
-
-    fold_many0(
-      preceded(tuple((meta, token("##"), meta)), identifier),
-      move || Self::Literal(id),
-      |mut acc, item| {
-        match acc {
-          Self::Literal(id) => Self::Concat(vec![id, item]),
-          Self::Concat(mut ids) => {
-            ids.push(item);
-            Self::Concat(ids)
-          }
-        }
-      }
-    )(tokens)
-  }
-}
-
-impl fmt::Display for Identifier<'_> {
-  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-    match self {
-      Self::Literal(s) => s.fmt(f),
-      Self::Concat(ids) => {
-        write!(f, "::core::concat_idents!(")?;
-        for id in ids {
-          write!(f, "{},", id)?;
-        }
-        write!(f, ")")
-      }
-    }
-  }
-}
-
-#[derive(Debug, Clone)]
-enum Expr<'t> {
-  Variable { name: Identifier<'t> },
-  FunctionCall(FunctionCall<'t>),
-  Cast { expr: Box<Expr<'t>>, cast: Identifier<'t>, ptr_level: usize },
-  Literal(String),
-  Deref { expr: Box<Self>, field: Identifier<'t> },
-  Stringify(&'t str),
-  Concat(Vec<Expr<'t>>),
-  BinOp(Box<Self>, &'t str, Box<Self>),
-  Ternary(Box<Self>, Box<Self>, Box<Self>),
-  AddrOf(Box<Self>),
-}
-
-impl<'t> Expr<'t> {
-  fn parse_string<'i>(tokens: &'i [&'t str]) -> IResult<&'i [&'t str], Self> {
-    let mut parse_string = alt((
-      map(string_literal, |s| Self::Literal(s.to_owned())),
-      map(preceded(pair(token("#"), meta), identifier), Self::Stringify),
-    ));
-
-    let (tokens, s) = parse_string(tokens)?;
-
-    fold_many0(
-      preceded(meta, parse_string),
-      move || s.clone(),
-      |mut acc, item| {
-        match acc {
-          Self::Concat(ref mut args) => {
-            args.push(item);
-            acc
-          },
-          acc => Self::Concat(vec![acc, item]),
-        }
-      }
-    )(tokens)
-  }
-
-  fn parse_factor<'i>(tokens: &'i [&'t str]) -> IResult<&'i [&'t str], Self> {
-    eprintln!("parse_factor: {:?}", tokens);
-    alt((
-      Self::parse_string,
-      map(number_literal, |n| Self::Literal(n.to_owned())),
-      map(Identifier::parse, |id| Self::Variable { name: id }),
-      delimited(pair(token("("), meta), Self::parse, pair(meta, token(")"))),
-    ))(tokens)
-  }
-
-  fn parse_term_prec1<'i>(tokens: &'i [&'t str]) -> IResult<&'i [&'t str], Self> {
-    eprintln!("parse_term_prec1: {:?}", tokens);
-
-    let (tokens, factor) = Self::parse_factor(tokens)?;
-
-    eprintln!("parse_term_prec1: factor = {:?}", factor);
-
-    let (tokens, arg) = match factor {
-      arg @ Expr::Variable { .. } | arg @ Expr::FunctionCall(..) | arg @ Expr::Deref { .. } => {
-        enum Access<'t> {
-          Fn(Vec<Expr<'t>>),
-          Field(Identifier<'t>),
-        }
-
-        fold_many0(
-          alt((
-            map(
-              delimited(
-                pair(token("("), meta),
-                separated_list0(tuple((meta, token(","), meta)), Self::parse),
-                pair(meta, token(")")),
-              ),
-              |args| Access::Fn(args)
-            ),
-            map(
-              pair(alt((token("."), token("->"))), Identifier::parse),
-              |(access, field)| Access::Field(field),
-            ),
-          )),
-          move || arg.clone(),
-          |acc, access| match (acc, access) {
-            (Expr::Variable { name }, Access::Fn(args)) => Expr::FunctionCall(FunctionCall { name, args }),
-            (acc, Access::Field(field)) => Expr::Deref { expr: Box::new(acc), field },
-            _ => unimplemented!(),
-          },
-        )(tokens)?
-      },
-      arg => (tokens, arg),
-    };
-
-    Ok((tokens, arg))
-  }
-
-  fn parse_term_prec2<'i>(tokens: &'i [&'t str]) -> IResult<&'i [&'t str], Self> {
-    eprintln!("parse_term_prec2: {:?}", tokens);
-
-    alt((
-      map(
-        pair(
-          delimited(
-            pair(token("("), meta),
-            pair(permutation((Identifier::parse, opt(token("const")))), many0_count(token("*"))),
-            pair(meta, token(")")),
-          ),
-          Self::parse_term_prec1,
-        ),
-        |(((cast, constness), ptr_level), term)| {
-          // TODO: Handle constness.
-          Expr::Cast { expr: Box::new(term), cast, ptr_level }
-        },
-      ),
-      map(
-        preceded(pair(token("&"), meta), Self::parse_term_prec1),
-        |expr| Expr::AddrOf(Box::new(expr)),
-      ),
-      Self::parse_term_prec1,
-    ))(tokens)
-  }
-
-  fn parse_term_prec3<'i>(tokens: &'i [&'t str]) -> IResult<&'i [&'t str], Self> {
-    eprintln!("parse_term_prec3: {:?}", tokens);
-
-    let (tokens, factor) = Self::parse_term_prec2(tokens)?;
-
-    fold_many0(
-      pair(alt((token("*"), token("/"))), Self::parse_term_prec2),
-      move || factor.clone(),
-      |lhs, (op, rhs)| {
-        Self::BinOp(Box::new(lhs), op, Box::new(rhs))
-      }
-    )(tokens)
-  }
-
-  fn parse_term_prec4<'i>(tokens: &'i [&'t str]) -> IResult<&'i [&'t str], Self> {
-    eprintln!("parse_term_prec4: {:?}", tokens);
-
-    let (tokens, term) = Self::parse_term_prec3(tokens)?;
-
-    fold_many0(
-      pair(alt((token("+"), token("-"))), Self::parse_term_prec3),
-      move || term.clone(),
-      |lhs, (op, rhs)| {
-        Self::BinOp(Box::new(lhs), op, Box::new(rhs))
-      }
-    )(tokens)
-  }
-
-  fn parse_term_prec5<'i>(tokens: &'i [&'t str]) -> IResult<&'i [&'t str], Self> {
-    eprintln!("parse_term_prec5: {:?}", tokens);
-
-    let (tokens, term) = Self::parse_term_prec4(tokens)?;
-
-    fold_many0(
-      pair(alt((token("<<"), token(">>"))), Self::parse_term_prec4),
-      move || term.clone(),
-      |lhs, (op, rhs)| {
-        Self::BinOp(Box::new(lhs), op, Box::new(rhs))
-      }
-    )(tokens)
-  }
-
-  fn parse_term_prec6<'i>(tokens: &'i [&'t str]) -> IResult<&'i [&'t str], Self> {
-    eprintln!("parse_term_prec6: {:?}", tokens);
-
-    let (tokens, term) = Self::parse_term_prec5(tokens)?;
-
-    fold_many0(
-      pair(alt((token("<"), token("<="), token(">"), token(">="))), Self::parse_term_prec5),
-      move || term.clone(),
-      |lhs, (op, rhs)| {
-        Self::BinOp(Box::new(lhs), op, Box::new(rhs))
-      }
-    )(tokens)
-  }
-
-  fn parse_term_prec7<'i>(tokens: &'i [&'t str]) -> IResult<&'i [&'t str], Self> {
-    eprintln!("parse_term_prec7: {:?}", tokens);
-
-    let (tokens, term) = Self::parse_term_prec6(tokens)?;
-
-    fold_many0(
-      pair(alt((token("=="), token("!="))), Self::parse_term_prec6),
-      move || term.clone(),
-      |lhs, (op, rhs)| {
-        Self::BinOp(Box::new(lhs), op, Box::new(rhs))
-      }
-    )(tokens)
-  }
-
-  fn parse_term_prec13<'i>(tokens: &'i [&'t str]) -> IResult<&'i [&'t str], Self> {
-    eprintln!("parse_term_prec13: {:?}", tokens);
-
-    let (tokens, term) = Self::parse_term_prec7(tokens)?;
-
-    // Parse ternary.
-    if let Ok((tokens, _)) = token("?")(tokens) {
-      let (tokens, if_branch) = Self::parse_term_prec7(tokens)?;
-      let (tokens, _) = token(":")(tokens)?;
-      let (tokens, else_branch) = Self::parse_term_prec7(tokens)?;
-      return Ok((tokens, Expr::Ternary(Box::new(term), Box::new(if_branch), Box::new(else_branch))))
-    }
-
-    Ok((tokens, term))
-  }
-
-  fn parse_term_prec14<'i>(tokens: &'i [&'t str]) -> IResult<&'i [&'t str], Self> {
-    eprintln!("parse_term_prec14: {:?}", tokens);
-
-    let (tokens, term) = Self::parse_term_prec13(tokens)?;
-
-    fold_many0(
-      pair(alt((token("="), token("+="), token("-="), token("*="), token("/="))), Self::parse_term_prec13),
-      move || term.clone(),
-      |lhs, (op, rhs)| {
-        Self::BinOp(Box::new(lhs), op, Box::new(rhs))
-      }
-    )(tokens)
-  }
-
-  pub fn parse<'i>(tokens: &'i [&'t str]) -> IResult<&'i [&'t str], Self> {
-    let (tokens, arg) = Self::parse_term_prec14(tokens)?;
-
-    eprintln!("arg = {:?}, tokens = {:?}", arg, tokens);
-
-
-
-    eprintln!("tokens: {:?}, arg: {:?}", tokens, arg);
-
-    Ok((tokens, arg))
-  }
-}
-
-impl fmt::Display for Expr<'_> {
-  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-    match *self {
-      Self::Cast { ref expr, ref cast, ptr_level } => {
-        if matches!(cast, Identifier::Literal("void")) && ptr_level == 0 {
-          write!(f, "drop({})", expr)
-        } else {
-          write!(f, "{:#} as ", expr)?;
-          for _ in 0..ptr_level {
-            write!(f, "*mut ")?;
-          }
-          write!(f, "{}", cast)
-        }
-      },
-      Self::Variable { name: Identifier::Literal("NULL") } => {
-        write!(f, "::core::ptr::null_mut()")
-      },
-      Self::Variable { name: Identifier::Literal("eIncrement") } => {
-        write!(f, "eNotifyAction_eIncrement")
-      },
-      Self::Variable { ref name } => {
-        if f.alternate() {
-          write!(f, "{}", name)
-        } else {
-          write!(f, "{}.into()", name)
-        }
-      },
-      Self::FunctionCall(ref call) => call.fmt(f),
-      Self::Literal(ref lit) => lit.fmt(f),
-      Self::Deref { ref expr, ref field } => write!(f, "Deref(unsafe {{ &mut *::core::ptr::addr_of_mut!((*{:#}).{}) }}).convert()", expr, field),
-      Self::Stringify(name) => write!(f, "::core::stringify!({})", name),
-      Self::Concat(ref names) => {
-        write!(f, "::core::concat!(")?;
-        for (i, name) in names.iter().enumerate() {
-          write!(f, "{},", name)?;
-        }
-        write!(f, ")")
-      },
-      Self::BinOp(ref lhs, op, ref rhs) => {
-        write!(f, "({}) {} ({})", lhs, op, rhs)
-      },
-      Self::Ternary(ref cond, ref if_branch, ref else_branch) => {
-        write!(f, "if {} {{", cond)?;
-        write!(f, "{}", if_branch)?;
-        write!(f, "}} else {{")?;
-        write!(f, "{}", else_branch)?;
-        write!(f, "}}")
-      },
-      Self::AddrOf(ref expr) => {
-        write!(f, "::core::ptr::addr_of_mut({})", expr)
-      }
-    }
-  }
-}
+mod parser;
+use parser::*;
 
 #[derive(Debug)]
 struct MacroSig<'t> {
@@ -458,51 +69,74 @@ impl<'t> MacroSig<'t> {
 }
 
 #[derive(Debug)]
-struct Assignment<'t> {
-  lhs: Expr<'t>,
-  rhs: &'t str,
+struct Decl<'t> {
+  ty: Type<'t>,
+  name: Identifier<'t>,
+  rhs: Expr<'t>,
 }
 
-impl<'t> Assignment<'t> {
+impl<'t> Decl<'t> {
   pub fn parse<'i>(tokens: &'i [&'t str]) -> IResult<&'i [&'t str], Self> {
-    eprintln!("Assignment::parse {:?}", tokens);
+    eprintln!("Decl::parse {:?}", tokens);
 
-    let (tokens, lhs) = Expr::parse(tokens)?;
-
-    eprintln!("Assignment::parse lhs {:?}", lhs);
-
-    let (tokens, _) = meta(tokens)?;
-    let (tokens, _) = token("=")(tokens)?;
-    let (tokens, _) = meta(tokens)?;
-    let (tokens, rhs) = identifier(tokens)?;
-
-    Ok((tokens, Self { lhs, rhs }))
+    let (tokens, (ty, name, _, rhs)) = tuple((Type::parse, Identifier::parse, token("="), Expr::parse))(tokens)?;
+    Ok((tokens, Self { ty, name, rhs }))
   }
 }
 
-impl fmt::Display for Assignment<'_> {
+impl fmt::Display for Decl<'_> {
   fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-    write!(f, "{} = {}", self.lhs, self.rhs)
+    write!(f, "let {}: {} = {};", self.name, self.ty, self.rhs)
   }
 }
 
 #[derive(Debug)]
 enum Statement<'t> {
   Expr(Expr<'t>),
-  Assignment(Assignment<'t>),
+  Decl(Decl<'t>),
+  If {
+    condition: Expr<'t>,
+    if_branch: Vec<Statement<'t>>,
+    else_branch: Vec<Statement<'t>>
+  },
   DoWhile { block: Vec<Statement<'t>>, condition: Expr<'t> },
 }
 
 impl<'t> Statement<'t> {
   pub fn parse<'i>(tokens: &'i [&'t str]) -> IResult<&'i [&'t str], Self> {
     alt((
-      // map(
-      //   pair(Assignment::parse, token(";")),
-      //   |(assignment, _)| Self::Assignment(assignment),
-      // ),
       map(
-        pair(Expr::parse, token(";")),
-        |(assignment, _)| Self::Expr(assignment),
+        tuple((
+          preceded(pair(token("if"), meta), delimited(pair(token("("), meta), Expr::parse, pair(meta, token(")")))),
+          alt((
+            delimited(pair(token("{"), meta), many0(Self::parse), pair(meta, token("}"))),
+            map(
+              Self::parse,
+              |stmt| vec![stmt],
+            ),
+          )),
+          opt(preceded(
+            tuple((meta, token("else"), meta)),
+            alt((
+              delimited(pair(token("{"), meta), many0(Self::parse), pair(meta, token("}"))),
+              map(
+                Self::parse,
+                |stmt| vec![stmt],
+              ),
+            )),
+          )),
+        )),
+        |(condition, if_branch, else_branch)| {
+          Self::If { condition, if_branch, else_branch: else_branch.unwrap_or_default() }
+        }
+      ),
+      map(
+        terminated(Decl::parse, token(";")),
+        Self::Decl,
+      ),
+      map(
+        terminated(Expr::parse, token(";")),
+        Self::Expr,
       ),
     ))(tokens)
   }
@@ -512,7 +146,24 @@ impl fmt::Display for Statement<'_> {
   fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
     match self {
       Self::Expr(expr) => expr.fmt(f),
-      Self::Assignment(a) => a.fmt(f),
+      Self::Decl(a) => a.fmt(f),
+      Self::If { condition, if_branch, else_branch } => {
+        write!(f, "if {} {{", condition)?;
+
+        for stmt in if_branch {
+          write!(f, "{}", stmt)?;
+        }
+
+        if !else_branch.is_empty() {
+          write!(f, "}} else {{")?;
+
+          for stmt in else_branch {
+            write!(f, "{}", stmt)?;
+          }
+        }
+
+        write!(f, "}}")
+      },
       Self::DoWhile { block, condition } => {
         write!(f, "loop {{")?;
         for stmt in block {
@@ -569,7 +220,7 @@ impl<'t> MacroBody<'t> {
       return Ok((tokens, MacroBody::Block(vec![])))
     }
 
-    if let Ok((tokens, do_while)) = token("do")(tokens) {
+    if let Ok((tokens, _)) = token("do")(tokens) {
       let (tokens, block) = Self::parse_block(tokens)?;
       let (tokens, _) = token("while")(tokens)?;
       let (tokens, condition) = delimited(token("("), Expr::parse, token(")"))(tokens)?;
@@ -590,33 +241,9 @@ impl<'t> MacroBody<'t> {
   }
 
   pub fn parse_block<'i>(tokens: &'i [&'t str]) -> IResult<&'i [&'t str], Vec<Statement<'t>>> {
-    map(
-      delimited(token("{"), pair(meta, many0(pair(Statement::parse, meta))), token("}")),
-      |(_, statements)| {
-        statements.into_iter().map(|(statement, _)| statement).collect::<Vec<_>>()
-      }
-    )(tokens)
-  }
-}
+    eprintln!("parse_block: {:?}", tokens);
 
-#[derive(Debug, Clone)]
-struct FunctionCall<'t> {
-  name: Identifier<'t>,
-  args: Vec<Expr<'t>>,
-}
-
-impl fmt::Display for FunctionCall<'_> {
-  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-    write!(f, "{}(", self.name)?;
-
-    for (i, arg) in self.args.iter().enumerate() {
-      if i > 0 {
-        write!(f, ", ")?;
-      }
-
-      write!(f, "{}", arg)?;
-    }
-    write!(f, ")")
+    delimited(token("{"), many0(preceded(meta, Statement::parse)), token("}"))(tokens)
   }
 }
 
@@ -647,6 +274,7 @@ fn variable_type(macro_name: &str, variable_name: &str) -> Option<&'static str> 
     "pxQueueBuffer" => "*mut StaticQueue_t",
     "pxPendYield" => "*mut BaseType_t",
     "pxSemaphoreBuffer" | "pxMutexBuffer" | "pxStaticSemaphore" => "*mut StaticSemaphore_t",
+    "xTimeInMs" => "u32",
     "x" if macro_name.ends_with("_CRITICAL_FROM_ISR") => "UBaseType_t",
     "x" if macro_name.ends_with("CLEAR_INTERRUPT_MASK_FROM_ISR") => "UBaseType_t",
     "x" if macro_name.ends_with("YIELD_FROM_ISR") => "BaseType_t",
@@ -657,6 +285,10 @@ fn variable_type(macro_name: &str, variable_name: &str) -> Option<&'static str> 
 }
 
 fn return_type(macro_name: &str) -> Option<&'static str> {
+  if macro_name.starts_with("pdMS_TO_TICKS") {
+    return Some("TickType_t")
+  }
+
   if macro_name.contains("GetMutexHolder") {
     return Some("TaskHandle_t")
   }
@@ -692,62 +324,6 @@ fn return_type(macro_name: &str) -> Option<&'static str> {
   None
 }
 
-mod func_macro;
-use func_macro::*;
-
-impl<'t> FunctionCall<'t> {
-  pub fn parse<'i>(tokens: &'i [&'t str]) -> IResult<&'i [&'t str], Self> {
-    let (tokens, name) = Identifier::parse(tokens)?;
-
-    if matches!(name, Identifier::Literal("__asm")) {
-      if let Ok((tokens, volatile)) = token("volatile")(tokens) {
-        let name = Identifier::Literal("::core::arch::asm!");
-
-        let (tokens, (template, outputs, inputs, clobbers)) = delimited(
-          pair(token("("), meta),
-          tuple((
-            separated_list0(tuple((meta, token(","), meta)), Expr::parse),
-            opt(preceded(token(":"), separated_list0(tuple((meta, token(","), meta)), Expr::parse))),
-            opt(preceded(token(":"), separated_list0(tuple((meta, token(","), meta)), Expr::parse))),
-            opt(preceded(token(":"), separated_list0(tuple((meta, token(","), meta)), Expr::parse))),
-          )),
-          pair(meta, token(")")),
-        )(tokens)?;
-
-        let mut args = template;
-
-        if let Some(outputs) = outputs {
-          args.extend(outputs);
-        }
-
-        if let Some(inputs) = inputs {
-          args.extend(inputs);
-        }
-
-        if let Some(clobbers) = clobbers {
-          args.extend(clobbers.into_iter().filter_map(|c| match c {
-            Expr::Literal(s) if s == r#""memory""# => None,
-            clobber => Some(Expr::Literal(format!("out({}) _", clobber))),
-          }));
-        }
-
-        args.push(Expr::Literal(r#"clobber_abi("C")"#.to_owned()));
-        args.push(Expr::Literal("options(raw)".to_owned()));
-
-        return Ok((tokens, Self { name, args }))
-      }
-    }
-
-    let (tokens, args) = delimited(
-      pair(token("("), meta),
-      separated_list0(tuple((meta, token(","), meta)), Expr::parse),
-      pair(meta, token(")")),
-    )(tokens)?;
-
-    Ok((tokens, FunctionCall { name, args }))
-  }
-}
-
 #[derive(Debug)]
 struct Callbacks {
   function_macros: Arc<Mutex<Vec<String>>>,
@@ -756,10 +332,9 @@ struct Callbacks {
 fn tokenize_name(input: &[u8]) -> Vec<&str> {
   let mut tokens = vec![];
 
-  let n = input.len();
   let mut i = 0;
 
-  'outer: loop {
+  loop {
     match input.get(i) {
       Some(b'a'..=b'z' | b'A'..=b'Z' | b'_') => {
         let start = i;
@@ -896,11 +471,7 @@ impl ParseCallbacks for Callbacks {
 
     match macro_body {
       MacroBody::Block(statements) => {
-        for (i, stmt) in statements.iter().enumerate() {
-          if i > 0 {
-            writeln!(f, ";").unwrap();
-          }
-
+        for stmt in statements.iter() {
           write!(f, "  {}", stmt).unwrap();
         }
       },
@@ -983,7 +554,7 @@ fn main() {
     .open(&bindings)
     .unwrap();
 
-    panic!();
+  // panic!();
 
   f.write_all(function_macros.as_bytes()).unwrap()
 }
