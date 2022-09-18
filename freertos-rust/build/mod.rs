@@ -125,6 +125,7 @@ impl<'t> MacroBody<'t> {
     terminated(
       alt((
         map(Statement::parse, MacroBody::Block),
+        map(pair(FunctionDecl::parse, opt(token(";"))), |_| MacroBody::Block(Statement::Block(vec![]))),
         map(Expr::parse, MacroBody::Expr),
       )),
       eof,

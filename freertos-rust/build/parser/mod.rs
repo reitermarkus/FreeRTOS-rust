@@ -13,6 +13,9 @@ pub use expr::*;
 mod function_call;
 pub use function_call::*;
 
+mod function_decl;
+pub use function_decl::*;
+
 mod string;
 pub(crate) use string::*;
 
