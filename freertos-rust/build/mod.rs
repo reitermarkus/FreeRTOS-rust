@@ -20,9 +20,15 @@ use nom::multi::{many0, many1, fold_many0, fold_many1};
 use nom::sequence::pair;
 use nom::sequence::preceded;
 use nom::branch::permutation;
+use nom::multi::many0_count;
 
 mod build;
 mod constants;
+
+enum Type<'t> {
+  Identifier(Identifier<'t>),
+  Ptr { ty: Box<Self>, mutable: bool },
+}
 
 fn number_literal<'i, 't>(tokens: &'i [&'t str]) -> IResult<&'i [&'t str], &'t str> {
   use nom::character::complete::{char, digit1};
@@ -127,19 +133,20 @@ impl fmt::Display for Identifier<'_> {
 }
 
 #[derive(Debug, Clone)]
-enum Arg<'t> {
+enum Expr<'t> {
   Variable { name: Identifier<'t> },
   FunctionCall(FunctionCall<'t>),
-  Cast { expr: Box<Arg<'t>>, cast: Identifier<'t> },
+  Cast { expr: Box<Expr<'t>>, cast: Identifier<'t>, ptr_level: usize },
   Literal(String),
   Deref { expr: Box<Self>, field: Identifier<'t> },
   Stringify(&'t str),
-  Concat(Vec<Arg<'t>>),
+  Concat(Vec<Expr<'t>>),
   BinOp(Box<Self>, &'t str, Box<Self>),
   Ternary(Box<Self>, Box<Self>, Box<Self>),
+  AddrOf(Box<Self>),
 }
 
-impl<'t> Arg<'t> {
+impl<'t> Expr<'t> {
   fn parse_string<'i>(tokens: &'i [&'t str]) -> IResult<&'i [&'t str], Self> {
     let mut parse_string = alt((
       map(string_literal, |s| Self::Literal(s.to_owned())),
@@ -165,55 +172,90 @@ impl<'t> Arg<'t> {
 
   fn parse_factor<'i>(tokens: &'i [&'t str]) -> IResult<&'i [&'t str], Self> {
     eprintln!("parse_factor: {:?}", tokens);
+    alt((
+      Self::parse_string,
+      map(number_literal, |n| Self::Literal(n.to_owned())),
+      map(Identifier::parse, |id| Self::Variable { name: id }),
+      delimited(pair(token("("), meta), Self::parse, pair(meta, token(")"))),
+    ))(tokens)
+  }
 
-    if let Ok((tokens, arg)) = Self::parse_string(tokens) {
-      return Ok((tokens, arg));
-    }
+  fn parse_term_prec1<'i>(tokens: &'i [&'t str]) -> IResult<&'i [&'t str], Self> {
+    eprintln!("parse_term_prec1: {:?}", tokens);
 
-    if let Ok((tokens, n)) = number_literal(tokens) {
-      return Ok((tokens, Self::Literal(n.to_owned())))
-    }
+    let (tokens, factor) = Self::parse_factor(tokens)?;
 
-    let (tokens, arg) = if let Ok((tokens, id)) = Identifier::parse(tokens) {
-      if let Ok((tokens, arguments)) = delimited(
-          pair(token("("), meta),
-          separated_list0(tuple((meta, token(","), meta)), Self::parse),
-          pair(meta, token(")")),
-      )(tokens) {
-        (tokens, Arg::FunctionCall(FunctionCall { name: id, arguments }))
-      } else {
-        (tokens, Arg::Variable { name: id })
-      }
-    } else if let Ok((tokens, id)) = delimited(
-      pair(token("("), meta), Identifier::parse, pair(meta, token(")"))
-    )(tokens) {
-      if let Ok((tokens, arg)) = Self::parse(tokens) {
-        (tokens, Arg::Cast { expr: Box::new(arg), cast: id })
-      } else {
-        (tokens, Arg::Variable { name: id })
-      }
-    } else {
-      delimited(pair(token("("), meta), Self::parse, pair(meta, token(")")))(tokens)?
+    eprintln!("parse_term_prec1: factor = {:?}", factor);
+
+    let (tokens, arg) = match factor {
+      arg @ Expr::Variable { .. } | arg @ Expr::FunctionCall(..) | arg @ Expr::Deref { .. } => {
+        enum Access<'t> {
+          Fn(Vec<Expr<'t>>),
+          Field(Identifier<'t>),
+        }
+
+        fold_many0(
+          alt((
+            map(
+              delimited(
+                pair(token("("), meta),
+                separated_list0(tuple((meta, token(","), meta)), Self::parse),
+                pair(meta, token(")")),
+              ),
+              |args| Access::Fn(args)
+            ),
+            map(
+              pair(alt((token("."), token("->"))), Identifier::parse),
+              |(access, field)| Access::Field(field),
+            ),
+          )),
+          move || arg.clone(),
+          |acc, access| match (acc, access) {
+            (Expr::Variable { name }, Access::Fn(args)) => Expr::FunctionCall(FunctionCall { name, args }),
+            (acc, Access::Field(field)) => Expr::Deref { expr: Box::new(acc), field },
+            _ => unimplemented!(),
+          },
+        )(tokens)?
+      },
+      arg => (tokens, arg),
     };
 
-    eprintln!("arg = {:?}, tokens = {:?}", arg, tokens);
+    Ok((tokens, arg))
+  }
 
-    fold_many0(
-      preceded(token("->"), Identifier::parse),
-      move || arg.clone(),
-      |acc, field| {
-        Arg::Deref { expr: Box::new(acc), field }
-      },
-    )(tokens)
+  fn parse_term_prec2<'i>(tokens: &'i [&'t str]) -> IResult<&'i [&'t str], Self> {
+    eprintln!("parse_term_prec2: {:?}", tokens);
+
+    alt((
+      map(
+        pair(
+          delimited(
+            pair(token("("), meta),
+            pair(permutation((Identifier::parse, opt(token("const")))), many0_count(token("*"))),
+            pair(meta, token(")")),
+          ),
+          Self::parse_term_prec1,
+        ),
+        |(((cast, constness), ptr_level), term)| {
+          // TODO: Handle constness.
+          Expr::Cast { expr: Box::new(term), cast, ptr_level }
+        },
+      ),
+      map(
+        preceded(pair(token("&"), meta), Self::parse_term_prec1),
+        |expr| Expr::AddrOf(Box::new(expr)),
+      ),
+      Self::parse_term_prec1,
+    ))(tokens)
   }
 
   fn parse_term_prec3<'i>(tokens: &'i [&'t str]) -> IResult<&'i [&'t str], Self> {
     eprintln!("parse_term_prec3: {:?}", tokens);
 
-    let (tokens, factor) = Self::parse_factor(tokens)?;
+    let (tokens, factor) = Self::parse_term_prec2(tokens)?;
 
     fold_many0(
-      pair(alt((token("*"), token("/"))), Self::parse_factor),
+      pair(alt((token("*"), token("/"))), Self::parse_term_prec2),
       move || factor.clone(),
       |lhs, (op, rhs)| {
         Self::BinOp(Box::new(lhs), op, Box::new(rhs))
@@ -263,31 +305,75 @@ impl<'t> Arg<'t> {
     )(tokens)
   }
 
-  pub fn parse<'i>(tokens: &'i [&'t str]) -> IResult<&'i [&'t str], Self> {
-    let (tokens, arg) = Self::parse_term_prec6(tokens)?;
+  fn parse_term_prec7<'i>(tokens: &'i [&'t str]) -> IResult<&'i [&'t str], Self> {
+    eprintln!("parse_term_prec7: {:?}", tokens);
+
+    let (tokens, term) = Self::parse_term_prec6(tokens)?;
+
+    fold_many0(
+      pair(alt((token("=="), token("!="))), Self::parse_term_prec6),
+      move || term.clone(),
+      |lhs, (op, rhs)| {
+        Self::BinOp(Box::new(lhs), op, Box::new(rhs))
+      }
+    )(tokens)
+  }
+
+  fn parse_term_prec13<'i>(tokens: &'i [&'t str]) -> IResult<&'i [&'t str], Self> {
+    eprintln!("parse_term_prec13: {:?}", tokens);
+
+    let (tokens, term) = Self::parse_term_prec7(tokens)?;
 
     // Parse ternary.
     if let Ok((tokens, _)) = token("?")(tokens) {
-      let (tokens, if_branch) = Self::parse(tokens)?;
+      let (tokens, if_branch) = Self::parse_term_prec7(tokens)?;
       let (tokens, _) = token(":")(tokens)?;
-      let (tokens, else_branch) = Self::parse(tokens)?;
-      return Ok((tokens, Arg::Ternary(Box::new(arg), Box::new(if_branch), Box::new(else_branch))))
+      let (tokens, else_branch) = Self::parse_term_prec7(tokens)?;
+      return Ok((tokens, Expr::Ternary(Box::new(term), Box::new(if_branch), Box::new(else_branch))))
     }
 
-    eprintln!("parse: {:?}", tokens);
+    Ok((tokens, term))
+  }
+
+  fn parse_term_prec14<'i>(tokens: &'i [&'t str]) -> IResult<&'i [&'t str], Self> {
+    eprintln!("parse_term_prec14: {:?}", tokens);
+
+    let (tokens, term) = Self::parse_term_prec13(tokens)?;
+
+    fold_many0(
+      pair(alt((token("="), token("+="), token("-="), token("*="), token("/="))), Self::parse_term_prec13),
+      move || term.clone(),
+      |lhs, (op, rhs)| {
+        Self::BinOp(Box::new(lhs), op, Box::new(rhs))
+      }
+    )(tokens)
+  }
+
+  pub fn parse<'i>(tokens: &'i [&'t str]) -> IResult<&'i [&'t str], Self> {
+    let (tokens, arg) = Self::parse_term_prec14(tokens)?;
+
+    eprintln!("arg = {:?}, tokens = {:?}", arg, tokens);
+
+
+
+    eprintln!("tokens: {:?}, arg: {:?}", tokens, arg);
 
     Ok((tokens, arg))
   }
 }
 
-impl fmt::Display for Arg<'_> {
+impl fmt::Display for Expr<'_> {
   fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
     match *self {
-      Self::Cast { ref expr, ref cast } => {
-        if matches!(cast, Identifier::Literal("void")) {
+      Self::Cast { ref expr, ref cast, ptr_level } => {
+        if matches!(cast, Identifier::Literal("void")) && ptr_level == 0 {
           write!(f, "drop({})", expr)
         } else {
-          write!(f, "{:#} as {}", expr, cast)
+          write!(f, "{:#} as ", expr)?;
+          for _ in 0..ptr_level {
+            write!(f, "*mut ")?;
+          }
+          write!(f, "{}", cast)
         }
       },
       Self::Variable { name: Identifier::Literal("NULL") } => {
@@ -323,6 +409,9 @@ impl fmt::Display for Arg<'_> {
         write!(f, "}} else {{")?;
         write!(f, "{}", else_branch)?;
         write!(f, "}}")
+      },
+      Self::AddrOf(ref expr) => {
+        write!(f, "::core::ptr::addr_of_mut({})", expr)
       }
     }
   }
@@ -370,13 +459,18 @@ impl<'t> MacroSig<'t> {
 
 #[derive(Debug)]
 struct Assignment<'t> {
-  lhs: &'t str,
+  lhs: Expr<'t>,
   rhs: &'t str,
 }
 
 impl<'t> Assignment<'t> {
   pub fn parse<'i>(tokens: &'i [&'t str]) -> IResult<&'i [&'t str], Self> {
-    let (tokens, lhs) = identifier(tokens)?;
+    eprintln!("Assignment::parse {:?}", tokens);
+
+    let (tokens, lhs) = Expr::parse(tokens)?;
+
+    eprintln!("Assignment::parse lhs {:?}", lhs);
+
     let (tokens, _) = meta(tokens)?;
     let (tokens, _) = token("=")(tokens)?;
     let (tokens, _) = meta(tokens)?;
@@ -394,20 +488,20 @@ impl fmt::Display for Assignment<'_> {
 
 #[derive(Debug)]
 enum Statement<'t> {
-  Expr(Arg<'t>),
+  Expr(Expr<'t>),
   Assignment(Assignment<'t>),
-  DoWhile { block: Vec<Statement<'t>>, condition: Arg<'t> },
+  DoWhile { block: Vec<Statement<'t>>, condition: Expr<'t> },
 }
 
 impl<'t> Statement<'t> {
   pub fn parse<'i>(tokens: &'i [&'t str]) -> IResult<&'i [&'t str], Self> {
     alt((
+      // map(
+      //   pair(Assignment::parse, token(";")),
+      //   |(assignment, _)| Self::Assignment(assignment),
+      // ),
       map(
-        pair(Assignment::parse, token(";")),
-        |(assignment, _)| Self::Assignment(assignment),
-      ),
-      map(
-        pair(Arg::parse, token(";")),
+        pair(Expr::parse, token(";")),
         |(assignment, _)| Self::Expr(assignment),
       ),
     ))(tokens)
@@ -435,7 +529,7 @@ impl fmt::Display for Statement<'_> {
 #[derive(Debug)]
 enum MacroBody<'t> {
   Block(Vec<Statement<'t>>),
-  Expr(Arg<'t>),
+  Expr(Expr<'t>),
 }
 
 fn comment<'i, 't>(tokens: &'i [&'t str]) -> IResult<&'i [&'t str], &'t str> {
@@ -478,7 +572,7 @@ impl<'t> MacroBody<'t> {
     if let Ok((tokens, do_while)) = token("do")(tokens) {
       let (tokens, block) = Self::parse_block(tokens)?;
       let (tokens, _) = token("while")(tokens)?;
-      let (tokens, condition) = delimited(token("("), Arg::parse, token(")"))(tokens)?;
+      let (tokens, condition) = delimited(token("("), Expr::parse, token(")"))(tokens)?;
 
       return Ok((tokens, MacroBody::Block(vec![Statement::DoWhile { block, condition }])))
     }
@@ -487,12 +581,11 @@ impl<'t> MacroBody<'t> {
       return Ok((tokens, MacroBody::Block(block)))
     }
 
-
     if let Ok((tokens, stmt)) = Statement::parse(tokens) {
       return Ok((tokens, MacroBody::Block(vec![stmt])))
     }
 
-    let (tokens, expr) = Arg::parse(tokens)?;
+    let (tokens, expr) = Expr::parse(tokens)?;
     Ok((tokens, MacroBody::Expr(expr)))
   }
 
@@ -509,14 +602,14 @@ impl<'t> MacroBody<'t> {
 #[derive(Debug, Clone)]
 struct FunctionCall<'t> {
   name: Identifier<'t>,
-  arguments: Vec<Arg<'t>>,
+  args: Vec<Expr<'t>>,
 }
 
 impl fmt::Display for FunctionCall<'_> {
   fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
     write!(f, "{}(", self.name)?;
 
-    for (i, arg) in self.arguments.iter().enumerate() {
+    for (i, arg) in self.args.iter().enumerate() {
       if i > 0 {
         write!(f, ", ")?;
       }
@@ -613,45 +706,45 @@ impl<'t> FunctionCall<'t> {
         let (tokens, (template, outputs, inputs, clobbers)) = delimited(
           pair(token("("), meta),
           tuple((
-            separated_list0(tuple((meta, token(","), meta)), Arg::parse),
-            opt(preceded(token(":"), separated_list0(tuple((meta, token(","), meta)), Arg::parse))),
-            opt(preceded(token(":"), separated_list0(tuple((meta, token(","), meta)), Arg::parse))),
-            opt(preceded(token(":"), separated_list0(tuple((meta, token(","), meta)), Arg::parse))),
+            separated_list0(tuple((meta, token(","), meta)), Expr::parse),
+            opt(preceded(token(":"), separated_list0(tuple((meta, token(","), meta)), Expr::parse))),
+            opt(preceded(token(":"), separated_list0(tuple((meta, token(","), meta)), Expr::parse))),
+            opt(preceded(token(":"), separated_list0(tuple((meta, token(","), meta)), Expr::parse))),
           )),
           pair(meta, token(")")),
         )(tokens)?;
 
-        let mut arguments = template;
+        let mut args = template;
 
         if let Some(outputs) = outputs {
-          arguments.extend(outputs);
+          args.extend(outputs);
         }
 
         if let Some(inputs) = inputs {
-          arguments.extend(inputs);
+          args.extend(inputs);
         }
 
         if let Some(clobbers) = clobbers {
-          arguments.extend(clobbers.into_iter().filter_map(|c| match c {
-            Arg::Literal(s) if s == r#""memory""# => None,
-            clobber => Some(Arg::Literal(format!("out({}) _", clobber))),
+          args.extend(clobbers.into_iter().filter_map(|c| match c {
+            Expr::Literal(s) if s == r#""memory""# => None,
+            clobber => Some(Expr::Literal(format!("out({}) _", clobber))),
           }));
         }
 
-        arguments.push(Arg::Literal(r#"clobber_abi("C")"#.to_owned()));
-        arguments.push(Arg::Literal("options(raw)".to_owned()));
+        args.push(Expr::Literal(r#"clobber_abi("C")"#.to_owned()));
+        args.push(Expr::Literal("options(raw)".to_owned()));
 
-        return Ok((tokens, Self { name, arguments }))
+        return Ok((tokens, Self { name, args }))
       }
     }
 
-    let (tokens, arguments) = delimited(
+    let (tokens, args) = delimited(
       pair(token("("), meta),
-      separated_list0(tuple((meta, token(","), meta)), Arg::parse),
+      separated_list0(tuple((meta, token(","), meta)), Expr::parse),
       pair(meta, token(")")),
     )(tokens)?;
 
-    Ok((tokens, FunctionCall { name, arguments }))
+    Ok((tokens, FunctionCall { name, args }))
   }
 }
 
