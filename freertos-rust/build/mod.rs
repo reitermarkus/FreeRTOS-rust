@@ -9,111 +9,321 @@ use std::sync::{Mutex, Arc};
 use core::num::NonZeroUsize;
 
 use bindgen::{callbacks::{ParseCallbacks, IntKind}};
-use nom::multi::separated_list0;
+use nom::multi::{separated_list0, separated_list1};
 use nom::branch::alt;
 use nom::combinator::map;
 use nom::sequence::delimited;
-use nom::combinator::opt;
+use nom::combinator::{opt, eof};
 use nom::sequence::tuple;
 use nom::{IResult, Needed};
-use nom::multi::many0;
+use nom::multi::{many0, many1, fold_many0, fold_many1};
 use nom::sequence::pair;
+use nom::sequence::preceded;
+use nom::branch::permutation;
 
 mod build;
 mod constants;
 
-#[derive(Debug)]
-enum Arg {
-  Variable { name: String },
-  FunctionCall(FunctionCall),
-  Cast { expr: Box<Arg>, cast: String },
-  Literal(String),
-  Deref { expr: Box<Self>, field: String },
+fn number_literal<'i, 't>(tokens: &'i [&'t str]) -> IResult<&'i [&'t str], &'t str> {
+  use nom::character::complete::{char, digit1};
+
+  if let Some(token) = tokens.get(0) {
+    let token: &str = token;
+
+    // let decimal = pair(complete::char('.'), digit1);
+    let unsigned = alt((char('u'), char('U')));
+    let long = alt((char('l'), char('L')));
+    let long_long = alt((
+      pair(char('l'), char('l')),
+      pair(char('L'), char('L')),
+    ));
+    let size_t = alt((char('z'), char('Z')));
+
+    let suffix = permutation((
+      opt(map(unsigned, |_| "u")),
+      opt(
+        alt((
+          map(long_long, |_| "ll"),
+          map(long, |_| "l"),
+          map(size_t, |_| "z"),
+        ))
+      )
+    ));
+
+    let res: IResult<&str, (&str, (Option<&str>, Option<&str>), &str)> = tuple((digit1, suffix, eof))(token);
+    dbg!(&tokens);
+
+    if let Ok((_, (n, (unsigned, size), _))) = res {
+      // TODO: Handle suffix.
+      return Ok((&tokens[1..], n))
+    }
+  }
+
+  Err(nom::Err::Error(nom::error::Error::new(tokens, nom::error::ErrorKind::Fail)))
 }
 
-impl Arg {
-  pub fn parse(s: &str) -> Option<(Arg, &str)> {
-    // Parse argument with cast or parentheses.
-    if let Some(s) = parse_char(s, '(') {
-      let s = skip_meta(s);
+fn string_literal<'i, 't>(tokens: &'i [&'t str]) -> IResult<&'i [&'t str], &'t str> {
+  if let Some(token) = tokens.get(0) {
+    if token.starts_with("\"") && token.ends_with("\"") {
+      return Ok((&tokens[1..], token))
+    }
+  }
 
-      if let Some((ty, s)) = parse_ident(s) {
-        let s = skip_meta(s);
+  Err(nom::Err::Error(nom::error::Error::new(tokens, nom::error::ErrorKind::Fail)))
+}
 
-        if let Some(s) = parse_char(s, ')') {
-          let s = skip_meta(s);
+#[derive(Debug, Clone)]
+enum Identifier<'t> {
+  Literal(&'t str),
+  Concat(Vec<&'t str>)
+}
 
-          if let Some((arg, s)) = Self::parse(s) {
-            return Some((Arg::Cast { expr: Box::new(arg), cast: ty }, s))
+fn identifier<'i, 't>(tokens: &'i [&'t str]) -> IResult<&'i [&'t str], &'t str> {
+  if let Some(token) = tokens.get(0) {
+    let mut it = token.chars();
+    if let Some('a'..='z' | 'A'..='Z' | '_') = it.next() {
+      if it.all(|c| matches!(c, 'a'..='z' | 'A'..='Z' | '_' | '0'..='9')) {
+        return Ok((&tokens[1..], token))
+      }
+    }
+  }
+
+  Err(nom::Err::Error(nom::error::Error::new(tokens, nom::error::ErrorKind::Fail)))
+}
+
+impl<'t> Identifier<'t> {
+  pub fn parse<'i>(tokens: &'i [&'t str]) -> IResult<&'i [&'t str], Self> {
+    let (tokens, id) = identifier(tokens)?;
+
+    fold_many0(
+      preceded(tuple((meta, token("##"), meta)), identifier),
+      move || Self::Literal(id),
+      |mut acc, item| {
+        match acc {
+          Self::Literal(id) => Self::Concat(vec![id, item]),
+          Self::Concat(mut ids) => {
+            ids.push(item);
+            Self::Concat(ids)
           }
         }
       }
-
-      if let Some((mut arg, s)) = Self::parse(s) {
-        let mut s = skip_meta(s);
-
-        match arg {
-          Arg::Variable { .. } | Arg::FunctionCall(_) => {
-            if let Some(s2) = parse_char(s, '-').and_then(|s| parse_char(s, '>')) {
-              let field;
-              (field, s) = parse_ident(s2)?;
-              s = skip_meta(s);
-
-              arg = Arg::Deref { expr: Box::new(arg), field: field.to_owned() };
-            }
-          },
-          _ => (),
-        };
-
-        let s = parse_char(s, ')')?;
-        return Some((arg, s))
-      }
-    }
-
-    if let Some((lit, s)) = parse_string(s) {
-      return Some((Arg::Literal(lit.to_owned()), s))
-    }
-
-    if let Some((call, s)) = FunctionCall::parse(s) {
-      return Some((Arg::FunctionCall(call), s))
-    }
-
-    // Bare identifier.
-    let (ident, s) = parse_ident(s)?;
-    Some((Arg::Variable { name: ident }, s))
+    )(tokens)
   }
 }
 
-impl fmt::Display for Arg {
+impl fmt::Display for Identifier<'_> {
   fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
     match self {
-      Self::Cast { expr, cast } => {
-        if cast == "void" {
+      Self::Literal(s) => s.fmt(f),
+      Self::Concat(ids) => {
+        write!(f, "::core::concat_idents!(")?;
+        for id in ids {
+          write!(f, "{},", id)?;
+        }
+        write!(f, ")")
+      }
+    }
+  }
+}
+
+#[derive(Debug, Clone)]
+enum Arg<'t> {
+  Variable { name: Identifier<'t> },
+  FunctionCall(FunctionCall<'t>),
+  Cast { expr: Box<Arg<'t>>, cast: Identifier<'t> },
+  Literal(String),
+  Deref { expr: Box<Self>, field: Identifier<'t> },
+  Stringify(&'t str),
+  Concat(Vec<Arg<'t>>),
+  BinOp(Box<Self>, &'t str, Box<Self>),
+  Ternary(Box<Self>, Box<Self>, Box<Self>),
+}
+
+impl<'t> Arg<'t> {
+  fn parse_string<'i>(tokens: &'i [&'t str]) -> IResult<&'i [&'t str], Self> {
+    let mut parse_string = alt((
+      map(string_literal, |s| Self::Literal(s.to_owned())),
+      map(preceded(pair(token("#"), meta), identifier), Self::Stringify),
+    ));
+
+    let (tokens, s) = parse_string(tokens)?;
+
+    fold_many0(
+      preceded(meta, parse_string),
+      move || s.clone(),
+      |mut acc, item| {
+        match acc {
+          Self::Concat(ref mut args) => {
+            args.push(item);
+            acc
+          },
+          acc => Self::Concat(vec![acc, item]),
+        }
+      }
+    )(tokens)
+  }
+
+  fn parse_factor<'i>(tokens: &'i [&'t str]) -> IResult<&'i [&'t str], Self> {
+    eprintln!("parse_factor: {:?}", tokens);
+
+    if let Ok((tokens, arg)) = Self::parse_string(tokens) {
+      return Ok((tokens, arg));
+    }
+
+    if let Ok((tokens, n)) = number_literal(tokens) {
+      return Ok((tokens, Self::Literal(n.to_owned())))
+    }
+
+    let (tokens, arg) = if let Ok((tokens, id)) = Identifier::parse(tokens) {
+      if let Ok((tokens, arguments)) = delimited(
+          pair(token("("), meta),
+          separated_list0(tuple((meta, token(","), meta)), Self::parse),
+          pair(meta, token(")")),
+      )(tokens) {
+        (tokens, Arg::FunctionCall(FunctionCall { name: id, arguments }))
+      } else {
+        (tokens, Arg::Variable { name: id })
+      }
+    } else if let Ok((tokens, id)) = delimited(
+      pair(token("("), meta), Identifier::parse, pair(meta, token(")"))
+    )(tokens) {
+      if let Ok((tokens, arg)) = Self::parse(tokens) {
+        (tokens, Arg::Cast { expr: Box::new(arg), cast: id })
+      } else {
+        (tokens, Arg::Variable { name: id })
+      }
+    } else {
+      delimited(pair(token("("), meta), Self::parse, pair(meta, token(")")))(tokens)?
+    };
+
+    eprintln!("arg = {:?}, tokens = {:?}", arg, tokens);
+
+    fold_many0(
+      preceded(token("->"), Identifier::parse),
+      move || arg.clone(),
+      |acc, field| {
+        Arg::Deref { expr: Box::new(acc), field }
+      },
+    )(tokens)
+  }
+
+  fn parse_term_prec3<'i>(tokens: &'i [&'t str]) -> IResult<&'i [&'t str], Self> {
+    eprintln!("parse_term_prec3: {:?}", tokens);
+
+    let (tokens, factor) = Self::parse_factor(tokens)?;
+
+    fold_many0(
+      pair(alt((token("*"), token("/"))), Self::parse_factor),
+      move || factor.clone(),
+      |lhs, (op, rhs)| {
+        Self::BinOp(Box::new(lhs), op, Box::new(rhs))
+      }
+    )(tokens)
+  }
+
+  fn parse_term_prec4<'i>(tokens: &'i [&'t str]) -> IResult<&'i [&'t str], Self> {
+    eprintln!("parse_term_prec4: {:?}", tokens);
+
+    let (tokens, term) = Self::parse_term_prec3(tokens)?;
+
+    fold_many0(
+      pair(alt((token("+"), token("-"))), Self::parse_term_prec3),
+      move || term.clone(),
+      |lhs, (op, rhs)| {
+        Self::BinOp(Box::new(lhs), op, Box::new(rhs))
+      }
+    )(tokens)
+  }
+
+  fn parse_term_prec5<'i>(tokens: &'i [&'t str]) -> IResult<&'i [&'t str], Self> {
+    eprintln!("parse_term_prec5: {:?}", tokens);
+
+    let (tokens, term) = Self::parse_term_prec4(tokens)?;
+
+    fold_many0(
+      pair(alt((token("<<"), token(">>"))), Self::parse_term_prec4),
+      move || term.clone(),
+      |lhs, (op, rhs)| {
+        Self::BinOp(Box::new(lhs), op, Box::new(rhs))
+      }
+    )(tokens)
+  }
+
+  fn parse_term_prec6<'i>(tokens: &'i [&'t str]) -> IResult<&'i [&'t str], Self> {
+    eprintln!("parse_term_prec6: {:?}", tokens);
+
+    let (tokens, term) = Self::parse_term_prec5(tokens)?;
+
+    fold_many0(
+      pair(alt((token("<"), token("<="), token(">"), token(">="))), Self::parse_term_prec5),
+      move || term.clone(),
+      |lhs, (op, rhs)| {
+        Self::BinOp(Box::new(lhs), op, Box::new(rhs))
+      }
+    )(tokens)
+  }
+
+  pub fn parse<'i>(tokens: &'i [&'t str]) -> IResult<&'i [&'t str], Self> {
+    let (tokens, arg) = Self::parse_term_prec6(tokens)?;
+
+    // Parse ternary.
+    if let Ok((tokens, _)) = token("?")(tokens) {
+      let (tokens, if_branch) = Self::parse(tokens)?;
+      let (tokens, _) = token(":")(tokens)?;
+      let (tokens, else_branch) = Self::parse(tokens)?;
+      return Ok((tokens, Arg::Ternary(Box::new(arg), Box::new(if_branch), Box::new(else_branch))))
+    }
+
+    eprintln!("parse: {:?}", tokens);
+
+    Ok((tokens, arg))
+  }
+}
+
+impl fmt::Display for Arg<'_> {
+  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    match *self {
+      Self::Cast { ref expr, ref cast } => {
+        if matches!(cast, Identifier::Literal("void")) {
           write!(f, "drop({})", expr)
         } else {
           write!(f, "{:#} as {}", expr, cast)
         }
       },
-      Self::Variable { name } => {
-        if name == "NULL" {
-          write!(f, "::core::ptr::null_mut()")?;
-        } else if name == "0U" {
-          write!(f, "0")?;
-        } else if name == "eIncrement" {
-          write!(f, "eNotifyAction_eIncrement")?;
-        } else {
-          if f.alternate() || name.parse::<usize>().is_ok() {
-            write!(f, "{}", name)?;
-          } else {
-            write!(f, "{}.into()", name)?;
-          }
-        }
-
-        Ok(())
+      Self::Variable { name: Identifier::Literal("NULL") } => {
+        write!(f, "::core::ptr::null_mut()")
       },
-      Self::FunctionCall(call) => call.fmt(f),
-      Self::Literal(lit) => lit.fmt(f),
-      Self::Deref { expr, field } => write!(f, "Deref(unsafe {{ &mut *::core::ptr::addr_of_mut!((*{:#}).{}) }}).convert()", expr, field),
+      Self::Variable { name: Identifier::Literal("eIncrement") } => {
+        write!(f, "eNotifyAction_eIncrement")
+      },
+      Self::Variable { ref name } => {
+        if f.alternate() {
+          write!(f, "{}", name)
+        } else {
+          write!(f, "{}.into()", name)
+        }
+      },
+      Self::FunctionCall(ref call) => call.fmt(f),
+      Self::Literal(ref lit) => lit.fmt(f),
+      Self::Deref { ref expr, ref field } => write!(f, "Deref(unsafe {{ &mut *::core::ptr::addr_of_mut!((*{:#}).{}) }}).convert()", expr, field),
+      Self::Stringify(name) => write!(f, "::core::stringify!({})", name),
+      Self::Concat(ref names) => {
+        write!(f, "::core::concat!(")?;
+        for (i, name) in names.iter().enumerate() {
+          write!(f, "{},", name)?;
+        }
+        write!(f, ")")
+      },
+      Self::BinOp(ref lhs, op, ref rhs) => {
+        write!(f, "({}) {} ({})", lhs, op, rhs)
+      },
+      Self::Ternary(ref cond, ref if_branch, ref else_branch) => {
+        write!(f, "if {} {{", cond)?;
+        write!(f, "{}", if_branch)?;
+        write!(f, "}} else {{")?;
+        write!(f, "{}", else_branch)?;
+        write!(f, "}}")
+      }
     }
   }
 }
@@ -159,53 +369,52 @@ impl<'t> MacroSig<'t> {
 }
 
 #[derive(Debug)]
-struct Assignment {
-  lhs: String,
-  rhs: String,
+struct Assignment<'t> {
+  lhs: &'t str,
+  rhs: &'t str,
 }
 
-impl Assignment {
-  pub fn parse(s: &str) -> Option<(Self, &str)> {
-    let s = skip_meta(s);
+impl<'t> Assignment<'t> {
+  pub fn parse<'i>(tokens: &'i [&'t str]) -> IResult<&'i [&'t str], Self> {
+    let (tokens, lhs) = identifier(tokens)?;
+    let (tokens, _) = meta(tokens)?;
+    let (tokens, _) = token("=")(tokens)?;
+    let (tokens, _) = meta(tokens)?;
+    let (tokens, rhs) = identifier(tokens)?;
 
-    let (ident, s) = parse_ident(s)?;
-    let s = skip_meta(s);
-    let s = parse_char(s, '=')?;
-    let s = skip_meta(s);
-    let (expr, s) = parse_ident(s)?;
-
-    Some((Self { lhs: ident, rhs: expr }, s))
+    Ok((tokens, Self { lhs, rhs }))
   }
 }
 
-impl fmt::Display for Assignment {
+impl fmt::Display for Assignment<'_> {
   fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
     write!(f, "{} = {}", self.lhs, self.rhs)
   }
 }
 
 #[derive(Debug)]
-enum Statement {
-  Expr(Arg),
-  Assignment(Assignment),
-  DoWhile { block: Vec<Statement>, condition: Arg },
+enum Statement<'t> {
+  Expr(Arg<'t>),
+  Assignment(Assignment<'t>),
+  DoWhile { block: Vec<Statement<'t>>, condition: Arg<'t> },
 }
 
-impl Statement {
-  pub fn parse(s: &str) -> Option<(Self, &str)> {
-    if let Some((a, s)) = Assignment::parse(s) {
-      return Some((Self::Assignment(a), s))
-    }
-
-    if let Some((expr, s)) = Arg::parse(s) {
-      return Some((Self::Expr(expr), s))
-    }
-
-    None
+impl<'t> Statement<'t> {
+  pub fn parse<'i>(tokens: &'i [&'t str]) -> IResult<&'i [&'t str], Self> {
+    alt((
+      map(
+        pair(Assignment::parse, token(";")),
+        |(assignment, _)| Self::Assignment(assignment),
+      ),
+      map(
+        pair(Arg::parse, token(";")),
+        |(assignment, _)| Self::Expr(assignment),
+      ),
+    ))(tokens)
   }
 }
 
-impl fmt::Display for Statement {
+impl fmt::Display for Statement<'_> {
   fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
     match self {
       Self::Expr(expr) => expr.fmt(f),
@@ -224,38 +433,23 @@ impl fmt::Display for Statement {
 }
 
 #[derive(Debug)]
-struct MacroBody {
-  statements: Vec<Statement>,
+enum MacroBody<'t> {
+  Block(Vec<Statement<'t>>),
+  Expr(Arg<'t>),
 }
 
 fn comment<'i, 't>(tokens: &'i [&'t str]) -> IResult<&'i [&'t str], &'t str> {
   if let Some(token) = tokens.get(0) {
     if token.starts_with("/*") && token.ends_with("*/") {
-      Ok((&tokens[1..], token))
-    } else {
-      Err(nom::Err::Error(nom::error::Error::new(tokens, nom::error::ErrorKind::Fail)))
+      return Ok((&tokens[1..], token))
     }
-  } else {
-    Err(nom::Err::Incomplete(Needed::Size(NonZeroUsize::new(1).unwrap())))
   }
+
+  Err(nom::Err::Error(nom::error::Error::new(tokens, nom::error::ErrorKind::Fail)))
 }
 
 fn meta<'i, 't>(input: &'i [&'t str]) -> IResult<&'i [&'t str], Vec<&'t str>> {
   many0(comment)(input)
-}
-
-fn identifier<'i, 't>(tokens: &'i [&'t str]) -> IResult<&'i [&'t str], &'t str> {
-  if let Some(token) = tokens.get(0) {
-    let mut it = token.chars();
-    match it.next() {
-      Some('a'..='z' | 'A'..='Z' | '_') if it.all(|c| matches!(c, 'a'..='z' | 'A'..='Z' | '_' | '0'..='9')) => {
-        Ok((&tokens[1..], token))
-      },
-      _ => Err(nom::Err::Error(nom::error::Error::new(tokens, nom::error::ErrorKind::Fail))),
-    }
-  } else {
-    Err(nom::Err::Incomplete(Needed::Size(NonZeroUsize::new(1).unwrap())))
-  }
 }
 
 fn token<'i, 't>(token: &'static str) -> impl Fn(&'i [&'t str]) -> IResult<&'i [&'t str], &'t str>
@@ -265,101 +459,60 @@ where
   move |tokens: &[&str]| {
     if let Some(token2) = tokens.get(0) {
       if token2 == &token {
-        Ok((&tokens[1..], token2))
-      } else{
-        Err(nom::Err::Error(nom::error::Error::new(tokens, nom::error::ErrorKind::AlphaNumeric)))
+        return Ok((&tokens[1..], token2))
       }
-    } else {
-      Err(nom::Err::Incomplete(Needed::Size(NonZeroUsize::new(1).unwrap())))
     }
+
+    Err(nom::Err::Error(nom::error::Error::new(tokens, nom::error::ErrorKind::Fail)))
   }
 }
 
-impl MacroBody {
-  pub fn parse(s: &str) -> Option<(MacroBody, &str)> {
-    let s = skip_meta(s);
+impl<'t> MacroBody<'t> {
+  pub fn parse<'i>(tokens: &'i [&'t str]) -> IResult<&'i [&'t str], Self> {
+    let (tokens, _) = meta(tokens)?;
 
-    if s.is_empty() {
-      return Some((MacroBody { statements: vec![] }, s))
+    if tokens.is_empty() {
+      return Ok((tokens, MacroBody::Block(vec![])))
     }
 
-    if let Some(s) = parse_char(s, 'd').and_then(|s| parse_char(s, 'o')) {
-      let s = skip_meta(s);
-      let (block, s) = Self::parse_block(s)?;
-      let s = skip_meta(s);
-      let (id, s) = parse_ident(s)?;
-      if id == "while" {
-        let s = parse_char(s, '(')?;
-        let (arg, s) = Arg::parse(s)?;
-        let s = parse_char(s, ')')?;
+    if let Ok((tokens, do_while)) = token("do")(tokens) {
+      let (tokens, block) = Self::parse_block(tokens)?;
+      let (tokens, _) = token("while")(tokens)?;
+      let (tokens, condition) = delimited(token("("), Arg::parse, token(")"))(tokens)?;
 
-        if s.is_empty() {
-          return Some((
-            MacroBody {
-              statements: vec![
-                Statement::DoWhile {
-                  block,
-                  condition: arg,
-                },
-              ],
-            },
-            s,
-          ))
-        }
-      }
-
-      return None
+      return Ok((tokens, MacroBody::Block(vec![Statement::DoWhile { block, condition }])))
     }
 
-    if let Some((block, s)) = Self::parse_block(s) {
-      if s.is_empty() {
-        return Some((MacroBody { statements: block }, s))
-      }
+    if let Ok((tokens, block)) = Self::parse_block(tokens) {
+      return Ok((tokens, MacroBody::Block(block)))
     }
 
-    if let Some((stmt, s)) = Statement::parse(s) {
-      if s.is_empty() {
-        return Some((MacroBody { statements: vec![stmt] }, s))
-      }
+
+    if let Ok((tokens, stmt)) = Statement::parse(tokens) {
+      return Ok((tokens, MacroBody::Block(vec![stmt])))
     }
 
-    None
+    let (tokens, expr) = Arg::parse(tokens)?;
+    Ok((tokens, MacroBody::Expr(expr)))
   }
 
-  pub fn parse_block(s: &str) -> Option<(Vec<Statement>, &str)> {
-    let s = parse_char(s, '{')?;
-    let mut s = skip_meta(s);
-
-    let mut stmts = vec![];
-
-    if let Some(s2) = parse_char(s, '}') {
-      s = s2;
-    } else {
-      loop {
-        let (stmt, s2) = Statement::parse(s)?;
-        stmts.push(stmt);
-        s = s2;
-        s = skip_meta(s);
-        s = parse_char(s, ';')?;
-        s = skip_meta(s);
-        if let Some(s2) = parse_char(s, '}') {
-          s = s2;
-          break
-        }
+  pub fn parse_block<'i>(tokens: &'i [&'t str]) -> IResult<&'i [&'t str], Vec<Statement<'t>>> {
+    map(
+      delimited(token("{"), pair(meta, many0(pair(Statement::parse, meta))), token("}")),
+      |(_, statements)| {
+        statements.into_iter().map(|(statement, _)| statement).collect::<Vec<_>>()
       }
-    }
-
-    Some((stmts, s))
+    )(tokens)
   }
 }
 
-#[derive(Debug)]
-struct FunctionCall {
-  name: String,
-  arguments: Vec<Arg>,
+#[derive(Debug, Clone)]
+struct FunctionCall<'t> {
+  name: Identifier<'t>,
+  arguments: Vec<Arg<'t>>,
 }
 
-impl fmt::Display for FunctionCall {
+impl fmt::Display for FunctionCall<'_> {
   fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
     write!(f, "{}(", self.name)?;
 
@@ -449,90 +602,56 @@ fn return_type(macro_name: &str) -> Option<&'static str> {
 mod func_macro;
 use func_macro::*;
 
-impl FunctionCall {
-  fn parse_args(mut s: &str) -> Option<(Vec<Arg>, &str)> {
-    let mut args = vec![];
+impl<'t> FunctionCall<'t> {
+  pub fn parse<'i>(tokens: &'i [&'t str]) -> IResult<&'i [&'t str], Self> {
+    let (tokens, name) = Identifier::parse(tokens)?;
 
-    while parse_char(s, ')').is_none() {
-      let (arg, s2) = Arg::parse(s)?;
-      args.push(arg);
-      s = s2;
+    if matches!(name, Identifier::Literal("__asm")) {
+      if let Ok((tokens, volatile)) = token("volatile")(tokens) {
+        let name = Identifier::Literal("::core::arch::asm!");
 
-      s = skip_meta(s);
-      if let Some(s2) = parse_char(s, ',') {
-        s = skip_meta(s2);
-        continue
-      }
+        let (tokens, (template, outputs, inputs, clobbers)) = delimited(
+          pair(token("("), meta),
+          tuple((
+            separated_list0(tuple((meta, token(","), meta)), Arg::parse),
+            opt(preceded(token(":"), separated_list0(tuple((meta, token(","), meta)), Arg::parse))),
+            opt(preceded(token(":"), separated_list0(tuple((meta, token(","), meta)), Arg::parse))),
+            opt(preceded(token(":"), separated_list0(tuple((meta, token(","), meta)), Arg::parse))),
+          )),
+          pair(meta, token(")")),
+        )(tokens)?;
 
-      break
-    }
+        let mut arguments = template;
 
-    Some((args, s))
-  }
-
-  fn parse_asm_args(s: &str) -> Option<(Vec<Arg>, &str)> {
-    let mut args = vec![];
-
-    let (template, mut s) = Arg::parse(s)?;
-    args.push(template);
-
-    s = skip_meta(s);
-    if let Some(s2) = parse_char(s, ':') {
-      s = s2;
-
-      if let Some((output_operands, s2)) = Self::parse_args(s) {
-        s = s2;
-        args.extend(output_operands);
-      }
-
-      s = skip_meta(s);
-      if let Some(s2) = parse_char(s, ':') {
-        s = s2;
-
-        if let Some((input_operands, s2)) = Self::parse_args(s) {
-          s = s2;
-          args.extend(input_operands);
+        if let Some(outputs) = outputs {
+          arguments.extend(outputs);
         }
 
-        s = skip_meta(s);
-        if let Some(s2) = parse_char(s, ':') {
-          s = s2;
-
-          if let Some((clobbers, s2)) = Self::parse_args(s) {
-            s = s2;
-
-            args.extend(clobbers.into_iter().filter_map(|a| match a {
-              Arg::Literal(s) if s == r#""memory""# => None,
-              clobber => Some(Arg::Literal(format!("out({}) _", clobber))),
-            }));
-          }
+        if let Some(inputs) = inputs {
+          arguments.extend(inputs);
         }
+
+        if let Some(clobbers) = clobbers {
+          arguments.extend(clobbers.into_iter().filter_map(|c| match c {
+            Arg::Literal(s) if s == r#""memory""# => None,
+            clobber => Some(Arg::Literal(format!("out({}) _", clobber))),
+          }));
+        }
+
+        arguments.push(Arg::Literal(r#"clobber_abi("C")"#.to_owned()));
+        arguments.push(Arg::Literal("options(raw)".to_owned()));
+
+        return Ok((tokens, Self { name, arguments }))
       }
     }
 
-    args.push(Arg::Literal(r#"clobber_abi("C")"#.to_owned()));
-    args.push(Arg::Literal("options(raw)".to_owned()));
+    let (tokens, arguments) = delimited(
+      pair(token("("), meta),
+      separated_list0(tuple((meta, token(","), meta)), Arg::parse),
+      pair(meta, token(")")),
+    )(tokens)?;
 
-    Some((args, s))
-  }
-
-  fn parse(s: &str) -> Option<(Self, &str)> {
-    let (mut name, s) = parse_ident(s)?;
-
-    let s = parse_char(s, '(')?;
-    let s = skip_meta(s);
-
-    let (arguments, s) = if name == "__asmvolatile" {
-      name = "::core::arch::asm!".to_string();
-      Self::parse_asm_args(s)?
-    } else {
-      Self::parse_args(s)?
-    };
-
-    let s = skip_meta(s);
-    let s = parse_char(s, ')')?;
-
-    Some((FunctionCall { name, arguments }, s))
+    Ok((tokens, FunctionCall { name, arguments }))
   }
 }
 
@@ -626,15 +745,13 @@ impl ParseCallbacks for Callbacks {
 
     let name = tokenize_name(name.as_bytes());
 
-    let v = value.iter().map(|bytes| str::from_utf8(bytes).unwrap()).collect::<Vec<_>>();
-    dbg!(&v);
+    let value = value.iter().map(|bytes| str::from_utf8(bytes).unwrap()).collect::<Vec<_>>();
+    dbg!(&value);
 
-    let value = value.iter().map(|bytes| str::from_utf8(bytes).unwrap()).collect::<String>();
-
-    eprintln!("{:?} -> {}", name, value);
+    eprintln!("{:?} -> {:?}", name, value);
 
     let (_, macro_sig) = MacroSig::parse(&name).unwrap();
-    let macro_body = MacroBody::parse(&value);
+    let (_, macro_body) = MacroBody::parse(&value).unwrap();
 
     let name = macro_sig.name;
 
@@ -664,39 +781,44 @@ impl ParseCallbacks for Callbacks {
 
     let mut f = String::new();
 
-    if let Some(macro_body) = macro_body.map(|rhs| rhs.0) {
-
-      writeln!(f, "#[allow(non_snake_case)]").unwrap();
-      writeln!(f, "#[inline(always)]").unwrap();
-      write!(f, r#"pub unsafe extern "C" fn {}("#, name).unwrap();
-      for (i, arg) in macro_sig.arguments.iter().enumerate() {
-        if i > 0 {
-          write!(f, ", ").unwrap();
-        }
-
-        let ty = variable_type(&name, &arg);
-        write!(f, "{}: {}", arg, ty.unwrap_or("UNKNOWN")).unwrap();
+    writeln!(f, "#[allow(non_snake_case)]").unwrap();
+    writeln!(f, "#[inline(always)]").unwrap();
+    write!(f, r#"pub unsafe extern "C" fn {}("#, name).unwrap();
+    for (i, arg) in macro_sig.arguments.iter().enumerate() {
+      if i > 0 {
+        write!(f, ", ").unwrap();
       }
 
-      write!(f, ") ").unwrap();
-
-      if let Some(return_type) = return_type(&name) {
-        write!(f, "-> {} ", return_type).unwrap();
-      }
-
-      writeln!(f, "{{").unwrap();
-
-      for (i, stmt) in macro_body.statements.iter().enumerate() {
-        if i > 0 {
-          writeln!(f, ";").unwrap();
-        }
-
-        write!(f, "  {}", stmt).unwrap();
-      }
-      writeln!(f).unwrap();
-
-      write!(f, "}}").unwrap();
+      let ty = variable_type(&name, &arg);
+      write!(f, "{}: {}", arg, ty.unwrap_or("UNKNOWN")).unwrap();
     }
+
+    write!(f, ") ").unwrap();
+
+    if let Some(return_type) = return_type(&name) {
+      write!(f, "-> {} ", return_type).unwrap();
+    }
+
+    writeln!(f, "{{").unwrap();
+
+    match macro_body {
+      MacroBody::Block(statements) => {
+        for (i, stmt) in statements.iter().enumerate() {
+          if i > 0 {
+            writeln!(f, ";").unwrap();
+          }
+
+          write!(f, "  {}", stmt).unwrap();
+        }
+      },
+      MacroBody::Expr(expr) => {
+        write!(f, "{}", expr).unwrap();
+      }
+    }
+
+    writeln!(f).unwrap();
+
+    write!(f, "}}").unwrap();
 
     self.function_macros.lock().unwrap().push(f);
   }
