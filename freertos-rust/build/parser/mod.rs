@@ -19,4 +19,10 @@ pub(crate) use string::*;
 mod number;
 pub(crate) use number::*;
 
+mod statement;
+pub(crate) use statement::*;
+
+mod decl;
+pub(crate) use decl::*;
+
 use super::*;

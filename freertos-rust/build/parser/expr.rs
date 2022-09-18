@@ -256,7 +256,7 @@ impl fmt::Display for Expr<'_> {
   fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
     match *self {
       Self::Cast { ref expr, ref ty } => {
-        if matches!(ty, Type::Identifier(Identifier::Literal("void"))) {
+        if matches!(ty, Type::Identifier { name: Identifier::Literal("void"), .. }) {
           write!(f, "drop({})", expr)
         } else {
           write!(f, "{:#} as {}", expr, ty)
@@ -288,16 +288,21 @@ impl fmt::Display for Expr<'_> {
       },
       Self::UnaryOp { ref op, ref expr, prefix } => {
         match (*op, prefix) {
-          ("++", true) => write!(f, "{{ {} -= 1; {} }}", expr, expr),
-          ("--", true) => write!(f, "{{ {} -= 1; {} }}", expr, expr),
-          ("++", false) => write!(f, "{{ let prev = {}; {} -= 1; prev }}", expr, expr),
-          ("--", false) => write!(f, "{{ let prev = {}; {} -= 1; prev }}", expr, expr),
-          ("!" | "~", _) => write!(f, "!{}", expr),
+          ("++", true) => write!(f, "{{ {:#} -= 1; {} }}", expr, expr),
+          ("--", true) => write!(f, "{{ {:#} -= 1; {} }}", expr, expr),
+          ("++", false) => write!(f, "{{ let prev = {}; {:#} -= 1; prev }}", expr, expr),
+          ("--", false) => write!(f, "{{ let prev = {}; {:#} -= 1; prev }}", expr, expr),
+          ("!", _) => write!(f, "({:#} as u8 == 0)", expr),
+          ("~", _) => write!(f, "!{:#}", expr),
           _ => write!(f, "{}{}", op, expr),
         }
       },
       Self::BinOp(ref lhs, op, ref rhs) => {
-        write!(f, "{} {} {}", lhs, op, rhs)
+        if op == "=" || op == "+=" || op == "-=" || op == "&=" || op == "^=" || op == "|=" {
+          write!(f, "{{ {:#} {} {:#}; {} }}", lhs, op, rhs, lhs)
+        } else {
+          write!(f, "{:#} {} {:#}", lhs, op, rhs)
+        }
       },
       Self::Ternary(ref cond, ref if_branch, ref else_branch) => {
         write!(f, "if {} {{", cond)?;

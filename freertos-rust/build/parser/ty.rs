@@ -2,7 +2,7 @@ use super::*;
 
 #[derive(Debug, Clone)]
 pub enum Type<'t> {
-  Identifier(Identifier<'t>),
+  Identifier { name: Identifier<'t>, is_struct: bool },
   Ptr { ty: Box<Self>, mutable: bool },
 }
 
@@ -14,7 +14,7 @@ impl<'t> Type<'t> {
 
     fold_many0(
       preceded(pair(token("*"), meta), many0_count(token("const"))),
-      move || Type::Identifier(ty.clone()),
+      move || Type::Identifier { name: ty.clone(), is_struct: strvct.is_some() },
       |acc, constness| {
         Type::Ptr { ty: Box::new(acc), mutable: constness == 0 }
       },
@@ -25,7 +25,7 @@ impl<'t> Type<'t> {
 impl fmt::Display for Type<'_> {
   fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
     match self {
-      Self::Identifier(id) => id.fmt(f),
+      Self::Identifier { name, .. }  => name.fmt(f),
       Self::Ptr { ty, mutable } => {
         if *mutable {
           write!(f, "*mut {}", ty)

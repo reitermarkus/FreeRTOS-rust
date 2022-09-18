@@ -38,148 +38,44 @@ impl<'t> MacroSig<'t> {
   pub fn parse<'i>(input: &'i [&'t str]) -> IResult<&'i [&'t str], Self> {
     let (input, name) = identifier(input)?;
 
-    let (input, arguments) = delimited(
-      pair(token("("), meta),
-      alt((
-        map(
-          token("..."),
-          |var_arg| vec![var_arg],
-        ),
-        map(
-          tuple((
-            separated_list0(tuple((meta, token(","), meta)), identifier),
-            opt(tuple((tuple((meta, token(","), meta)), token("...")))),
-          )),
-          |(arguments, var_arg)| {
-            let mut arguments = arguments.to_vec();
+    let (input, arguments) = terminated(
+      delimited(
+        pair(token("("), meta),
+        alt((
+          map(
+            token("..."),
+            |var_arg| vec![var_arg],
+          ),
+          map(
+            tuple((
+              separated_list0(tuple((meta, token(","), meta)), identifier),
+              opt(tuple((tuple((meta, token(","), meta)), token("...")))),
+            )),
+            |(arguments, var_arg)| {
+              let mut arguments = arguments.to_vec();
 
-            if let Some((_, var_arg)) = var_arg {
-              arguments.push(var_arg);
-            }
+              if let Some((_, var_arg)) = var_arg {
+                arguments.push(var_arg);
+              }
 
-            arguments
-          },
-        ),
-      )),
-      pair(meta, token(")")),
+              arguments
+            },
+          ),
+        )),
+        pair(meta, token(")")),
+      ),
+      eof,
     )(input)?;
+
+
 
     Ok((input, MacroSig { name, arguments }))
   }
 }
 
 #[derive(Debug)]
-struct Decl<'t> {
-  ty: Type<'t>,
-  name: Identifier<'t>,
-  rhs: Expr<'t>,
-}
-
-impl<'t> Decl<'t> {
-  pub fn parse<'i>(tokens: &'i [&'t str]) -> IResult<&'i [&'t str], Self> {
-    eprintln!("Decl::parse {:?}", tokens);
-
-    let (tokens, (ty, name, _, rhs)) = tuple((Type::parse, Identifier::parse, token("="), Expr::parse))(tokens)?;
-    Ok((tokens, Self { ty, name, rhs }))
-  }
-}
-
-impl fmt::Display for Decl<'_> {
-  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-    write!(f, "let {}: {} = {};", self.name, self.ty, self.rhs)
-  }
-}
-
-#[derive(Debug)]
-enum Statement<'t> {
-  Expr(Expr<'t>),
-  Decl(Decl<'t>),
-  If {
-    condition: Expr<'t>,
-    if_branch: Vec<Statement<'t>>,
-    else_branch: Vec<Statement<'t>>
-  },
-  DoWhile { block: Vec<Statement<'t>>, condition: Expr<'t> },
-}
-
-impl<'t> Statement<'t> {
-  pub fn parse<'i>(tokens: &'i [&'t str]) -> IResult<&'i [&'t str], Self> {
-    alt((
-      map(
-        tuple((
-          preceded(pair(token("if"), meta), delimited(pair(token("("), meta), Expr::parse, pair(meta, token(")")))),
-          alt((
-            delimited(pair(token("{"), meta), many0(Self::parse), pair(meta, token("}"))),
-            map(
-              Self::parse,
-              |stmt| vec![stmt],
-            ),
-          )),
-          opt(preceded(
-            tuple((meta, token("else"), meta)),
-            alt((
-              delimited(pair(token("{"), meta), many0(Self::parse), pair(meta, token("}"))),
-              map(
-                Self::parse,
-                |stmt| vec![stmt],
-              ),
-            )),
-          )),
-        )),
-        |(condition, if_branch, else_branch)| {
-          Self::If { condition, if_branch, else_branch: else_branch.unwrap_or_default() }
-        }
-      ),
-      map(
-        terminated(Decl::parse, token(";")),
-        Self::Decl,
-      ),
-      map(
-        terminated(Expr::parse, token(";")),
-        Self::Expr,
-      ),
-    ))(tokens)
-  }
-}
-
-impl fmt::Display for Statement<'_> {
-  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-    match self {
-      Self::Expr(expr) => expr.fmt(f),
-      Self::Decl(a) => a.fmt(f),
-      Self::If { condition, if_branch, else_branch } => {
-        write!(f, "if {} {{", condition)?;
-
-        for stmt in if_branch {
-          write!(f, "{}", stmt)?;
-        }
-
-        if !else_branch.is_empty() {
-          write!(f, "}} else {{")?;
-
-          for stmt in else_branch {
-            write!(f, "{}", stmt)?;
-          }
-        }
-
-        write!(f, "}}")
-      },
-      Self::DoWhile { block, condition } => {
-        write!(f, "loop {{")?;
-        for stmt in block {
-          write!(f, "{};", stmt)?;
-        }
-        write!(f, "if ({} as u8 == 0) {{ break }}", condition)?;
-        write!(f, "}}")?;
-        Ok(())
-      }
-    }
-  }
-}
-
-#[derive(Debug)]
 enum MacroBody<'t> {
-  Block(Vec<Statement<'t>>),
+  Block(Statement<'t>),
   Expr(Expr<'t>),
 }
 
@@ -202,8 +98,14 @@ where
   't: 'i,
 {
   move |tokens: &[&str]| {
-    if let Some(token2) = tokens.get(0) {
-      if token2 == &token {
+    if let Some(mut token2) = tokens.get(0).as_deref() {
+      let token2 = if token2.starts_with("\\\n") { // TODO: Fix in tokenizer/lexer.
+        &token2[2..]
+      } else {
+        token2
+      };
+
+      if token2 == token {
         return Ok((&tokens[1..], token2))
       }
     }
@@ -217,33 +119,16 @@ impl<'t> MacroBody<'t> {
     let (tokens, _) = meta(tokens)?;
 
     if tokens.is_empty() {
-      return Ok((tokens, MacroBody::Block(vec![])))
+      return Ok((tokens, MacroBody::Block(Statement::Block(vec![]))))
     }
 
-    if let Ok((tokens, _)) = token("do")(tokens) {
-      let (tokens, block) = Self::parse_block(tokens)?;
-      let (tokens, _) = token("while")(tokens)?;
-      let (tokens, condition) = delimited(token("("), Expr::parse, token(")"))(tokens)?;
-
-      return Ok((tokens, MacroBody::Block(vec![Statement::DoWhile { block, condition }])))
-    }
-
-    if let Ok((tokens, block)) = Self::parse_block(tokens) {
-      return Ok((tokens, MacroBody::Block(block)))
-    }
-
-    if let Ok((tokens, stmt)) = Statement::parse(tokens) {
-      return Ok((tokens, MacroBody::Block(vec![stmt])))
-    }
-
-    let (tokens, expr) = Expr::parse(tokens)?;
-    Ok((tokens, MacroBody::Expr(expr)))
-  }
-
-  pub fn parse_block<'i>(tokens: &'i [&'t str]) -> IResult<&'i [&'t str], Vec<Statement<'t>>> {
-    eprintln!("parse_block: {:?}", tokens);
-
-    delimited(token("{"), many0(preceded(meta, Statement::parse)), token("}"))(tokens)
+    terminated(
+      alt((
+        map(Statement::parse, MacroBody::Block),
+        map(Expr::parse, MacroBody::Expr),
+      )),
+      eof,
+    )(tokens)
   }
 }
 
@@ -419,7 +304,6 @@ impl ParseCallbacks for Callbacks {
     eprintln!("{:?} -> {:?}", name, value);
 
     let (_, macro_sig) = MacroSig::parse(&name).unwrap();
-    let (_, macro_body) = MacroBody::parse(&value).unwrap();
 
     let name = macro_sig.name;
 
@@ -437,13 +321,18 @@ impl ParseCallbacks for Callbacks {
       name.ends_with("ENABLE_INTERRUPTS") ||
       name.ends_with("END_SWITCHING_ISR") ||
       name.ends_with("INTERRUPT_MASK_FROM_ISR") ||
-      name.starts_with("configAssert") ||
       name.starts_with("portTASK_FUNCTION") ||
+      name == "portGET_HIGHEST_PRIORITY" ||
+      name == "portRECORD_READY_PRIORITY" ||
+      name == "portRESET_READY_PRIORITY" ||
       name.ends_with("_TCB") ||
       name == "CAST_USER_ADDR_T" ||
       name == "vSemaphoreCreateBinary" {
       return;
     }
+
+    let (_, macro_body) = MacroBody::parse(&value).unwrap();
+
 
     eprintln!("FUNC MACRO: {:?} -> {:?}", macro_sig, macro_body);
 
@@ -470,14 +359,8 @@ impl ParseCallbacks for Callbacks {
     writeln!(f, "{{").unwrap();
 
     match macro_body {
-      MacroBody::Block(statements) => {
-        for stmt in statements.iter() {
-          write!(f, "  {}", stmt).unwrap();
-        }
-      },
-      MacroBody::Expr(expr) => {
-        write!(f, "{}", expr).unwrap();
-      }
+      MacroBody::Block(stmt) => write!(f, "  {}", stmt).unwrap(),
+      MacroBody::Expr(expr) => write!(f, "{}", expr).unwrap(),
     }
 
     writeln!(f).unwrap();
