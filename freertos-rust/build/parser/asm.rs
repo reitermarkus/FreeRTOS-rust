@@ -2,7 +2,7 @@ use super::*;
 
 #[derive(Debug, Clone)]
 pub struct Asm<'t> {
-  template: Vec<&'t str>,
+  template: Vec<LitString>,
   outputs: Vec<Expr<'t>>,
   inputs: Vec<Expr<'t>>,
   clobbers: Vec<Expr<'t>>,
@@ -13,7 +13,7 @@ impl<'t> Asm<'t> {
     let (tokens, (template, outputs, inputs, clobbers)) = delimited(
       pair(token("("), meta),
       tuple((
-        separated_list0(tuple((meta, token(","), meta)), string_literal),
+        separated_list0(tuple((meta, token(","), meta)), LitString::parse),
         opt(preceded(token(":"), separated_list0(tuple((meta, token(","), meta)), Expr::parse))),
         opt(preceded(token(":"), separated_list0(tuple((meta, token(","), meta)), Expr::parse))),
         opt(preceded(token(":"), separated_list0(tuple((meta, token(","), meta)), Expr::parse))),
@@ -25,7 +25,7 @@ impl<'t> Asm<'t> {
     let inputs = inputs.unwrap_or_default();
 
     let clobbers = clobbers.unwrap_or_default().into_iter().filter_map(|c| match c {
-        Expr::Literal(s) if s == r#""memory""# => None,
+        Expr::Literal(Lit::String(s)) if s == "memory" => None,
         clobber => Some(clobber),
     }).collect::<Vec<_>>();
 
@@ -43,10 +43,10 @@ impl<'t> Asm<'t> {
 
     tokens.append_all(quote! {
       ::core::arch::asm!(
-        #(#template),*,
-        #(#outputs),*
-        #(#inputs),*
-        #(out(#clobbers) _),*
+        #(#template,)*
+        #(#outputs,)*
+        #(#inputs,)*
+        #(out(#clobbers) _,)*
         clobber_abi("C"),
         options(raw)
       )

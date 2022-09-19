@@ -5,7 +5,7 @@ pub enum Expr<'t> {
   Variable { name: Identifier },
   FunctionCall(FunctionCall<'t>),
   Cast { expr: Box<Expr<'t>>, ty: Type },
-  Literal(String),
+  Literal(Lit),
   FieldAccess { expr: Box<Self>, field: Identifier },
   Stringify(Stringify),
   Concat(Vec<Expr<'t>>),
@@ -18,7 +18,7 @@ pub enum Expr<'t> {
 impl<'t> Expr<'t> {
   fn parse_string<'i>(tokens: &'i [&'t str]) -> IResult<&'i [&'t str], Self> {
     let mut parse_string = alt((
-      map(string_literal, |s| Self::Literal(s.to_owned())),
+      map(LitString::parse, |s| Self::Literal(Lit::String(s))),
       map(Stringify::parse, Self::Stringify),
     ));
 
@@ -41,8 +41,7 @@ impl<'t> Expr<'t> {
 
   fn parse_factor<'i>(tokens: &'i [&'t str]) -> IResult<&'i [&'t str], Self> {
     alt((
-      Self::parse_string,
-      map(number_literal, |n| Self::Literal(n.to_owned())),
+      map(Lit::parse, Self::Literal),
       map(Identifier::parse, |id| Self::Variable { name: id }),
       delimited(pair(token("("), meta), Self::parse, pair(meta, token(")"))),
     ))(tokens)
@@ -301,8 +300,7 @@ impl<'t> Expr<'t> {
         call.to_tokens(ctx, tokens);
       },
       Self::Literal(ref lit) => {
-        let lit = lit.parse::<TokenStream>().unwrap();
-        tokens.append_all(quote! { #lit });
+        tokens.append_all(Some(lit))
       },
       Self::FieldAccess { ref expr, ref field } => {
         let expr = expr.to_token_stream(ctx);

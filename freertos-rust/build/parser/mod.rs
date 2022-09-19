@@ -20,11 +20,8 @@ pub use function_call::*;
 mod function_decl;
 pub use function_decl::*;
 
-mod string;
-pub(crate) use string::*;
-
-mod number;
-pub(crate) use number::*;
+mod literal;
+pub(crate) use literal::*;
 
 mod statement;
 pub(crate) use statement::*;
