@@ -337,7 +337,7 @@ impl<'t> Expr<'t> {
           ("+", _) => quote! { (+#expr) },
           ("-", _) => quote! { (-#expr) },
           ("*", true) => quote! { (*#expr) },
-          ("&", true) => quote! { ::core::ptr::addr_of_mut(#expr) },
+          ("&", true) => quote! { ::core::ptr::addr_of_mut!(#expr) },
           (op, _) => todo!("op = {:?}", op),
         })
       },
@@ -353,6 +353,7 @@ impl<'t> Expr<'t> {
           "|=" => quote! { { #lhs |= #rhs; #lhs } },
           "^=" => quote! { { #lhs ^= #rhs; #lhs } },
           "==" => quote! { ( #lhs == #rhs ) },
+          "!=" => quote! { ( #lhs != #rhs ) },
           "+"  => quote! { ( #lhs +  #rhs ) },
           "-"  => quote! { ( #lhs -  #rhs ) },
           "*"  => quote! { ( #lhs *  #rhs ) },
@@ -360,6 +361,10 @@ impl<'t> Expr<'t> {
           "&"  => quote! { ( #lhs &  #rhs ) },
           "|"  => quote! { ( #lhs |  #rhs ) },
           "^"  => quote! { ( #lhs ^  #rhs ) },
+          "<=" => quote! { ( #lhs <= #rhs ) },
+          "<"  => quote! { ( #lhs <  #rhs ) },
+          ">"  => quote! { ( #lhs >  #rhs ) },
+          ">=" => quote! { ( #lhs >= #rhs ) },
           op   => todo!("op {:?}", op),
         });
       },

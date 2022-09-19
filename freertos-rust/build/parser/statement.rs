@@ -57,7 +57,7 @@ impl<'t> Statement<'t> {
         Self::Decl,
       ),
       map(
-        terminated(Expr::parse, token(";")),
+        terminated(Expr::parse, alt((token(";"), map(eof, |_| "")))),
         Self::Expr,
       ),
     ))(tokens)

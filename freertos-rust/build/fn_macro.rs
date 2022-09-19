@@ -239,13 +239,10 @@ impl<'t> MacroBody<'t> {
       return Ok((input, MacroBody::Block(Statement::Block(vec![]))))
     }
 
-    let (input, body) = terminated(
-      alt((
-        map(Statement::parse, MacroBody::Block),
-        map(Expr::parse, MacroBody::Expr),
-      )),
-      eof,
-    )(input)?;
+    let (input, body) = alt((
+      terminated(map(Expr::parse, MacroBody::Expr), eof),
+      terminated(map(Statement::parse, MacroBody::Block), eof),
+    ))(input)?;
     assert!(input.is_empty());
 
     Ok((input, body))

@@ -30,7 +30,7 @@ impl Stringify {
     let id = self.id.to_token_stream(ctx);
 
     quote! {
-      ::core::stringify!($#id)
+      ::core::stringify!(#id)
     }
   }
 }

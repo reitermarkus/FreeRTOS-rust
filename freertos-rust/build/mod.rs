@@ -66,7 +66,8 @@ where
 
 pub(crate) fn variable_type(macro_name: &str, variable_name: &str) -> Option<&'static str> {
   Some(match variable_name {
-    "pxListItem" => "*mut ListItem_t",
+    "pxList" => "*mut List_t",
+    "pxListItem" | "pxItem" => "*mut ListItem_t",
     "pxHigherPriorityTaskWoken" | "pxYieldPending" => "*mut BaseType_t",
     "pxPreviousWakeTime" => "*mut UBaseType_t",
     "uxQueueLength" | "uxItemSize" | "uxMaxCount" | "uxInitialCount" |
@@ -94,11 +95,11 @@ pub(crate) fn variable_type(macro_name: &str, variable_name: &str) -> Option<&'s
     "pxPendYield" => "*mut BaseType_t",
     "pxSemaphoreBuffer" | "pxMutexBuffer" | "pxStaticSemaphore" => "*mut StaticSemaphore_t",
     "xTimeInMs" => "u32",
-    "x" if macro_name.ends_with("_CRITICAL_FROM_ISR") => "UBaseType_t",
-    "x" if macro_name.ends_with("CLEAR_INTERRUPT_MASK_FROM_ISR") => "UBaseType_t",
+    "x" if macro_name.ends_with("ENTER_CRITICAL_FROM_ISR") => "::core::ffi::c_long",
+    "x" if macro_name.ends_with("CLEAR_INTERRUPT_MASK_FROM_ISR") => "::core::ffi::c_long",
     "x" if macro_name.ends_with("YIELD_FROM_ISR") => "BaseType_t",
     "x" if macro_name == "xTaskCreateRestricted" => "*mut TaskParameters_t",
-    "xClearCountOnExit" => "BaseType_t",
+    "xClearCountOnExit" | "xSwitchRequired" => "BaseType_t",
     _ => return None,
   })
 }
@@ -184,12 +185,10 @@ impl ParseCallbacks for Callbacks {
     if name.starts_with("_") ||
       name == "offsetof" ||
       ((name.starts_with("INT") || name.starts_with("UINT")) && name.ends_with("_C")) ||
-      // name.starts_with("list") ||
-      // name.starts_with("trace") ||
-      name.starts_with("config") ||
-      // name == "taskYIELD" || name == "portYIELD" ||
+      name == "configASSERT" ||
+      name == "taskYIELD" || name == "portYIELD" ||
       name.ends_with("YIELD_FROM_ISR") ||
-      name.ends_with("_CRITICAL_FROM_ISR") ||
+      name.ends_with("ENTER_CRITICAL_FROM_ISR") ||
       name.ends_with("DISABLE_INTERRUPTS") ||
       name.ends_with("ENABLE_INTERRUPTS") ||
       name.ends_with("END_SWITCHING_ISR") ||
@@ -236,7 +235,6 @@ fn main() {
     println!("cargo:warning=FREERTOS_SRC is not set");
     return
   };
-
 
   let freertos_config = if let Ok(freertos_config) = env::var("FREERTOS_CONFIG") {
     PathBuf::from(freertos_config)
