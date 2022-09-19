@@ -24,60 +24,10 @@ use nom::sequence::terminated;
 
 mod build;
 mod constants;
-
+mod fn_macro;
+use fn_macro::*;
 mod parser;
 use parser::*;
-
-#[derive(Debug)]
-struct MacroSig<'t> {
-  name: &'t str,
-  arguments: Vec<&'t str>,
-}
-
-impl<'t> MacroSig<'t> {
-  pub fn parse<'i>(input: &'i [&'t str]) -> IResult<&'i [&'t str], Self> {
-    let (input, name) = identifier(input)?;
-
-    let (input, arguments) = terminated(
-      delimited(
-        pair(token("("), meta),
-        alt((
-          map(
-            token("..."),
-            |var_arg| vec![var_arg],
-          ),
-          map(
-            tuple((
-              separated_list0(tuple((meta, token(","), meta)), identifier),
-              opt(tuple((tuple((meta, token(","), meta)), token("...")))),
-            )),
-            |(arguments, var_arg)| {
-              let mut arguments = arguments.to_vec();
-
-              if let Some((_, var_arg)) = var_arg {
-                arguments.push(var_arg);
-              }
-
-              arguments
-            },
-          ),
-        )),
-        pair(meta, token(")")),
-      ),
-      eof,
-    )(input)?;
-
-
-
-    Ok((input, MacroSig { name, arguments }))
-  }
-}
-
-#[derive(Debug)]
-enum MacroBody<'t> {
-  Block(Statement<'t>),
-  Expr(Expr<'t>),
-}
 
 fn comment<'i, 't>(tokens: &'i [&'t str]) -> IResult<&'i [&'t str], &'t str> {
   if let Some(token) = tokens.get(0) {
@@ -98,7 +48,7 @@ where
   't: 'i,
 {
   move |tokens: &[&str]| {
-    if let Some(mut token2) = tokens.get(0).as_deref() {
+    if let Some(token2) = tokens.get(0).as_deref() {
       let token2 = if token2.starts_with("\\\n") { // TODO: Fix in tokenizer/lexer.
         &token2[2..]
       } else {
@@ -114,26 +64,7 @@ where
   }
 }
 
-impl<'t> MacroBody<'t> {
-  pub fn parse<'i>(tokens: &'i [&'t str]) -> IResult<&'i [&'t str], Self> {
-    let (tokens, _) = meta(tokens)?;
-
-    if tokens.is_empty() {
-      return Ok((tokens, MacroBody::Block(Statement::Block(vec![]))))
-    }
-
-    terminated(
-      alt((
-        map(Statement::parse, MacroBody::Block),
-        map(pair(FunctionDecl::parse, opt(token(";"))), |_| MacroBody::Block(Statement::Block(vec![]))),
-        map(Expr::parse, MacroBody::Expr),
-      )),
-      eof,
-    )(tokens)
-  }
-}
-
-fn variable_type(macro_name: &str, variable_name: &str) -> Option<&'static str> {
+pub(crate) fn variable_type(macro_name: &str, variable_name: &str) -> Option<&'static str> {
   Some(match variable_name {
     "pxHigherPriorityTaskWoken" | "pxYieldPending" => "*mut BaseType_t",
     "pxPreviousWakeTime" => "*mut UBaseType_t",
@@ -170,7 +101,7 @@ fn variable_type(macro_name: &str, variable_name: &str) -> Option<&'static str> 
   })
 }
 
-fn return_type(macro_name: &str) -> Option<&'static str> {
+pub(crate) fn return_type(macro_name: &str) -> Option<&'static str> {
   if macro_name.starts_with("pdMS_TO_TICKS") {
     return Some("TickType_t")
   }
@@ -215,58 +146,6 @@ struct Callbacks {
   function_macros: Arc<Mutex<Vec<String>>>,
 }
 
-fn tokenize_name(input: &[u8]) -> Vec<&str> {
-  let mut tokens = vec![];
-
-  let mut i = 0;
-
-  loop {
-    match input.get(i) {
-      Some(b'a'..=b'z' | b'A'..=b'Z' | b'_') => {
-        let start = i;
-        i += 1;
-
-        while let Some(b'a'..=b'z' | b'A'..=b'Z' | b'_' | b'0'..=b'9') = input.get(i) {
-          i += 1;
-        }
-
-        tokens.push(unsafe { str::from_utf8_unchecked(&input[start..i]) });
-      },
-      Some(b'(' | b')' | b',') => {
-        tokens.push(unsafe { str::from_utf8_unchecked(&input[i..(i + 1)]) });
-        i += 1;
-      },
-      Some(b'/') if matches!(input.get(i + 1), Some(b'*')) => {
-        let start = i;
-        i += 2;
-
-        while let Some(c) = input.get(i) {
-          i += 1;
-
-          if *c == b'*' {
-            if let Some(b'/') = input.get(i) {
-              i += 1;
-              tokens.push(unsafe { str::from_utf8_unchecked(&input[start..i]) });
-              break;
-            }
-          }
-        }
-      },
-      Some(b'.') if matches!(input.get(i..(i + 3)), Some(b"...")) => {
-        tokens.push(unsafe { str::from_utf8_unchecked(&input[i..(i + 3)]) });
-        i += 3;
-      },
-      Some(b' ') => {
-        i += 1;
-      },
-      Some(c) => unreachable!("{}", *c as char),
-      None => break,
-    }
-  }
-
-  tokens
-}
-
 impl ParseCallbacks for Callbacks {
   fn item_name(&self, name: &str) -> Option<String> {
     Some(match name {
@@ -293,21 +172,13 @@ impl ParseCallbacks for Callbacks {
   }
 
   fn func_macro(&self, name: &str, value: &[&[u8]]) {
-    use std::fmt::Write;
+    let sig = name;
+    let body = value.iter().map(|bytes| str::from_utf8(bytes).unwrap()).collect::<Vec<_>>();
 
     dbg!(&name);
+    dbg!(&body);
 
-    let name = tokenize_name(name.as_bytes());
-
-    let value = value.iter().map(|bytes| str::from_utf8(bytes).unwrap()).collect::<Vec<_>>();
-    dbg!(&value);
-
-    eprintln!("{:?} -> {:?}", name, value);
-
-    let (_, macro_sig) = MacroSig::parse(&name).unwrap();
-
-    let name = macro_sig.name;
-
+    let name = name.split_once("(").map(|(n, _)| n).unwrap_or(name);
     if name.starts_with("_") ||
       name == "offsetof" ||
       name.starts_with("INT") ||
@@ -332,41 +203,13 @@ impl ParseCallbacks for Callbacks {
       return;
     }
 
-    let (_, macro_body) = MacroBody::parse(&value).unwrap();
+    let fn_macro = FnMacro::parse(sig, &body).unwrap();
 
-
-    eprintln!("FUNC MACRO: {:?} -> {:?}", macro_sig, macro_body);
+    eprintln!("FUNC MACRO: {:?}({:?}) -> {:?}", fn_macro.name, fn_macro.args, fn_macro.body);
 
     let mut f = String::new();
 
-    writeln!(f, "#[allow(non_snake_case)]").unwrap();
-    writeln!(f, "#[inline(always)]").unwrap();
-    write!(f, r#"pub unsafe extern "C" fn {}("#, name).unwrap();
-    for (i, arg) in macro_sig.arguments.iter().enumerate() {
-      if i > 0 {
-        write!(f, ", ").unwrap();
-      }
-
-      let ty = variable_type(&name, &arg);
-      write!(f, "{}: {}", arg, ty.unwrap_or("UNKNOWN")).unwrap();
-    }
-
-    write!(f, ") ").unwrap();
-
-    if let Some(return_type) = return_type(&name) {
-      write!(f, "-> {} ", return_type).unwrap();
-    }
-
-    writeln!(f, "{{").unwrap();
-
-    match macro_body {
-      MacroBody::Block(stmt) => write!(f, "  {}", stmt).unwrap(),
-      MacroBody::Expr(expr) => write!(f, "{}", expr).unwrap(),
-    }
-
-    writeln!(f).unwrap();
-
-    write!(f, "}}").unwrap();
+    fn_macro.write(&mut f).unwrap();
 
     self.function_macros.lock().unwrap().push(f);
   }

@@ -1,3 +1,4 @@
+
 use super::*;
 
 pub fn identifier<'i, 't>(tokens: &'i [&'t str]) -> IResult<&'i [&'t str], &'t str> {
@@ -14,42 +15,66 @@ pub fn identifier<'i, 't>(tokens: &'i [&'t str]) -> IResult<&'i [&'t str], &'t s
 }
 
 #[derive(Debug, Clone)]
-pub enum Identifier<'t> {
-  Literal(&'t str),
-  Concat(Vec<&'t str>)
+pub enum Identifier {
+  Literal(String),
+  Concat(Vec<String>)
 }
 
-impl<'t> Identifier<'t> {
-  pub fn parse<'i>(tokens: &'i [&'t str]) -> IResult<&'i [&'t str], Self> {
+impl Identifier {
+  pub fn parse<'i, 't>(ctx: &Context<'_, '_>, tokens: &'i [&'t str]) -> IResult<&'i [&'t str], Self> {
     let (tokens, id) = identifier(tokens)?;
 
-    fold_many0(
+    let (tokens, id) = fold_many0(
       preceded(tuple((meta, token("##"), meta)), identifier),
-      move || Self::Literal(id),
+      move || Self::Literal(id.to_owned()),
       |acc, item| {
         match acc {
-          Self::Literal(id) => Self::Concat(vec![id, item]),
+          Self::Literal(id) => Self::Concat(vec![id.to_owned(), item.to_owned()]),
           Self::Concat(mut ids) => {
-            ids.push(item);
+            ids.push(item.to_owned());
             Self::Concat(ids)
           }
         }
       }
-    )(tokens)
-  }
-}
+    )(tokens)?;
 
-impl fmt::Display for Identifier<'_> {
-  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-    match self {
-      Self::Literal(s) => s.fmt(f),
-      Self::Concat(ids) => {
-        write!(f, "::core::concat_idents!(")?;
-        for id in ids {
-          write!(f, "{},", id)?;
+    if let Self::Concat(ref ids) = id {
+      for id in ids {
+        if let Some(arg_ty) = ctx.args.get(id.as_str()) {
+          arg_ty.set(MacroArgType::Ident);
         }
-        write!(f, ")")
       }
     }
+
+    Ok((tokens, id))
+  }
+
+  pub fn to_tokens(&self, ctx: &mut Context, tokens: &mut TokenStream) {
+    match self {
+      Self::Literal(s) => {
+        let mut id = Ident::new(s, Span::call_site());
+
+        if ctx.is_macro_arg(s.as_str()) {
+          return tokens.append_all(quote! { $#id })
+        }
+
+        tokens.append(id)
+      },
+      Self::Concat(ids) => {
+        let ids = ids.iter().map(|id| Self::Literal(id.to_owned()).to_token_stream(ctx)).collect::<Vec<_>>();
+
+        tokens.append_all(quote! {
+          ::core::concat_idents!(
+            #(#ids),*
+          )
+        })
+      },
+    }
+  }
+
+  pub fn to_token_stream(&self, ctx: &mut Context) -> TokenStream {
+    let mut tokens = TokenStream::new();
+    self.to_tokens(ctx, &mut tokens);
+    tokens
   }
 }

@@ -1,15 +1,15 @@
 use super::*;
 
 #[derive(Debug, Clone)]
-pub enum Type<'t> {
-  Identifier { name: Identifier<'t>, is_struct: bool },
+pub enum Type {
+  Identifier { name: Identifier, is_struct: bool },
   Ptr { ty: Box<Self>, mutable: bool },
 }
 
-impl<'t> Type<'t> {
-  pub fn parse<'i>(tokens: &'i [&'t str]) -> IResult<&'i [&'t str], Self> {
+impl Type {
+  pub fn parse<'i, 't>(ctx: &Context<'_, '_>, tokens: &'i [&'t str]) -> IResult<&'i [&'t str], Self> {
     let (tokens, (_, (strvct, ty), _)) = tuple((
-      many0_count(token("const")), pair(opt(token("struct")), Identifier::parse), many0_count(token("const")),
+      many0_count(token("const")), pair(opt(token("struct")), |tokens| Identifier::parse(ctx, tokens)), many0_count(token("const")),
     ))(tokens)?;
 
     fold_many0(
@@ -20,19 +20,27 @@ impl<'t> Type<'t> {
       },
     )(tokens)
   }
-}
 
-impl fmt::Display for Type<'_> {
-  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+  pub fn to_tokens(&self, ctx: &mut Context, tokens: &mut TokenStream) {
     match self {
-      Self::Identifier { name, .. }  => name.fmt(f),
+      Self::Identifier { name, .. }  => {
+        name.to_tokens(ctx, tokens)
+      },
       Self::Ptr { ty, mutable } => {
-        if *mutable {
-          write!(f, "*mut {}", ty)
+        let ty = ty.to_token_stream(ctx);
+
+        tokens.append_all(if *mutable {
+          quote! { *mut #ty }
         } else {
-          write!(f, "*const {}", ty)
-        }
+          quote! { *const #ty }
+        })
       }
     }
+  }
+
+  pub fn to_token_stream(&self, ctx: &mut Context) -> TokenStream {
+    let mut tokens = TokenStream::new();
+    self.to_tokens(ctx, &mut tokens);
+    tokens
   }
 }

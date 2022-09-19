@@ -1,3 +1,7 @@
+use proc_macro2::{Ident, Span, TokenStream};
+use quote::{TokenStreamExt, quote};
+use syn::Token;
+
 mod asm;
 pub use asm::*;
 
@@ -29,3 +33,4 @@ mod decl;
 pub(crate) use decl::*;
 
 use super::*;
+

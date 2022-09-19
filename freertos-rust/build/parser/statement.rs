@@ -3,6 +3,7 @@ use super::*;
 #[derive(Debug)]
 pub enum Statement<'t> {
   Expr(Expr<'t>),
+  FunctionDecl(FunctionDecl),
   Decl(Decl<'t>),
   Block(Vec<Self>),
   If {
@@ -14,14 +15,14 @@ pub enum Statement<'t> {
 }
 
 impl<'t> Statement<'t> {
-  pub fn parse<'i>(tokens: &'i [&'t str]) -> IResult<&'i [&'t str], Self> {
-    let condition = || delimited(pair(token("("), meta), Expr::parse, pair(meta, token(")")));
-
-    let block = || map(Self::parse, |stmt| if let Self::Block(stmts) = stmt { stmts } else { vec![stmt] } );
+  pub fn parse<'i>(ctx: &Context, tokens: &'i [&'t str]) -> IResult<&'i [&'t str], Self> {
+    let mut condition = || delimited(pair(token("("), meta), |tokens| Expr::parse(ctx, tokens), pair(meta, token(")")));
+    let mut this = || |tokens| Self::parse(ctx, tokens);
+    let mut block = || map(this(), |stmt| if let Self::Block(stmts) = stmt { stmts } else { vec![stmt] } );
 
     alt((
       map(
-        delimited(token("{"), many0(preceded(meta, Self::parse)), pair(meta, token("}"))),
+        delimited(token("{"), many0(preceded(meta, this())), pair(meta, token("}"))),
         |statements| Self::Block(statements),
       ),
       map(
@@ -48,57 +49,67 @@ impl<'t> Statement<'t> {
         |(block, condition)| Self::DoWhile { block, condition }
       ),
       map(
-        terminated(Decl::parse, token(";")),
+        terminated(|tokens| FunctionDecl::parse(ctx, tokens), alt((token(";"), map(eof, |_| "")))),
+        Self::FunctionDecl,
+      ),
+      map(
+        terminated(|tokens| Decl::parse(ctx, tokens), alt((token(";"), map(eof, |_| "")))),
         Self::Decl,
       ),
       map(
-        terminated(Expr::parse, token(";")),
+        terminated(|tokens| Expr::parse(ctx, tokens), token(";")),
         Self::Expr,
       ),
     ))(tokens)
   }
-}
 
-impl fmt::Display for Statement<'_> {
-  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+  pub fn to_tokens(&self, ctx: &mut Context, tokens: &mut TokenStream) {
     match self {
-      Self::Expr(expr) => expr.fmt(f),
-      Self::Decl(a) => a.fmt(f),
+      Self::Expr(expr) => expr.to_tokens(ctx, tokens),
+      Self::FunctionDecl(f) => f.to_tokens(ctx, tokens),
+      Self::Decl(d) => d.to_tokens(ctx, tokens),
       Self::Block(block) => {
-        write!(f, "{{")?;
+        let block = block.iter().map(|stmt| stmt.to_token_stream(ctx)).collect::<Vec<_>>();
 
-        for stmt in block {
-          write!(f, "{}", stmt)?;
-        }
-
-        write!(f, "}}")
+        tokens.append_all(quote! {
+          {
+            #(#block)*
+          }
+        })
       },
       Self::If { condition, if_branch, else_branch } => {
-        write!(f, "if {} {{", condition)?;
+        let condition = condition.to_token_stream(ctx);
+        let if_branch = if_branch.iter().map(|stmt| stmt.to_token_stream(ctx)).collect::<Vec<_>>();
+        let else_branch = else_branch.iter().map(|stmt| stmt.to_token_stream(ctx)).collect::<Vec<_>>();
 
-        for stmt in if_branch {
-          write!(f, "{}", stmt)?;
-        }
-
-        if !else_branch.is_empty() {
-          write!(f, "}} else {{")?;
-
-          for stmt in else_branch {
-            write!(f, "{}", stmt)?;
+        tokens.append_all(quote! {
+          if #condition {
+            #(#if_branch)*
+          } else {
+            #(#else_branch)*
           }
-        }
-
-        write!(f, "}}")
+        })
       },
       Self::DoWhile { block, condition } => {
-        write!(f, "loop {{")?;
-        for stmt in block {
-          write!(f, "{};", stmt)?;
-        }
-        write!(f, "if ({} as u8 == 0) {{ break }}", condition)?;
-        write!(f, "}}")?;
-        Ok(())
+        let block = block.iter().map(|stmt| stmt.to_token_stream(ctx)).collect::<Vec<_>>();
+        let condition = condition.to_token_stream(ctx);
+
+        tokens.append_all(quote! {
+          loop {
+            #(#block)*
+
+            if #condition == Default::default() {
+              break
+            }
+          }
+        })
       }
     }
+  }
+
+  pub fn to_token_stream(&self, ctx: &mut Context) -> TokenStream {
+    let mut tokens = TokenStream::new();
+    self.to_tokens(ctx, &mut tokens);
+    tokens
   }
 }

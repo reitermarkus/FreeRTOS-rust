@@ -1,33 +1,41 @@
 use super::*;
 
 #[derive(Debug)]
-pub struct FunctionDecl<'t> {
-  ret_ty: Type<'t>,
-  name: Identifier<'t>,
-  args: Vec<(Type<'t>, Identifier<'t>)>,
+pub struct FunctionDecl {
+  ret_ty: Type,
+  name: Identifier,
+  args: Vec<(Type, Identifier)>,
   is_static: bool,
 }
 
-impl<'t> FunctionDecl<'t> {
-  pub fn parse<'i>(tokens: &'i [&'t str]) -> IResult<&'i [&'t str], Self> {
-    eprintln!("Decl::parse {:?}", tokens);
-
+impl FunctionDecl {
+  pub fn parse<'i, 't>(ctx: &Context<'_, '_>, tokens: &'i [&'t str]) -> IResult<&'i [&'t str], Self> {
     let (tokens, ((static_storage, ret_ty), name, args)) = tuple((
-      permutation((opt(token("static")), Type::parse)),
-      Identifier::parse,
+      permutation((opt(token("static")), |tokens| Type::parse(ctx, tokens))),
+      |tokens| Identifier::parse(ctx, tokens),
       delimited(
         pair(token("("), meta),
-        separated_list0(pair(meta, token(",")), pair(Type::parse, Identifier::parse)),
+        separated_list0(pair(meta, token(",")), pair(|tokens| Type::parse(ctx, tokens), |tokens| Identifier::parse(ctx, tokens))),
         pair(meta, token(")")),
       ),
     ))(tokens)?;
 
     Ok((tokens, Self { ret_ty, name, args, is_static: static_storage.is_some() }))
   }
-}
 
-impl fmt::Display for FunctionDecl<'_> {
-  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-    Ok(())
+  pub fn to_tokens(&self, ctx: &mut Context, tokens: &mut TokenStream) {
+    let name = self.name.to_token_stream(ctx);
+    let args = self.args.iter().map(|(ty, arg)| {
+      let ty = ty.to_token_stream(ctx);
+      let arg = arg.to_token_stream(ctx);
+      quote! { #arg: #ty }
+    }).collect::<Vec<_>>();
+    let ret_ty = self.ret_ty.to_token_stream(ctx);
+
+    tokens.append_all(quote! {
+      extern "C" {
+        pub fn #name(#(#args),*) -> #ret_ty;
+      }
+    })
   }
 }
