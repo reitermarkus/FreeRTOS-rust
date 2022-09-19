@@ -66,6 +66,7 @@ where
 
 pub(crate) fn variable_type(macro_name: &str, variable_name: &str) -> Option<&'static str> {
   Some(match variable_name {
+    "pxListItem" => "*mut ListItem_t",
     "pxHigherPriorityTaskWoken" | "pxYieldPending" => "*mut BaseType_t",
     "pxPreviousWakeTime" => "*mut UBaseType_t",
     "uxQueueLength" | "uxItemSize" | "uxMaxCount" | "uxInitialCount" |
@@ -88,6 +89,7 @@ pub(crate) fn variable_type(macro_name: &str, variable_name: &str) -> Option<&'s
     "pulPreviousNotificationValue" | "pulPreviousNotifyValue" | "pulNotificationValue" => "*mut u32",
     "pvTaskToDelete" | "pvBuffer" => "*mut ::core::ffi::c_void",
     "pucQueueStorage" => "*mut u8",
+    "pxOwner" => "*mut ::core::ffi::c_void",
     "pxQueueBuffer" => "*mut StaticQueue_t",
     "pxPendYield" => "*mut BaseType_t",
     "pxSemaphoreBuffer" | "pxMutexBuffer" | "pxStaticSemaphore" => "*mut StaticSemaphore_t",
@@ -181,12 +183,11 @@ impl ParseCallbacks for Callbacks {
     let name = name.split_once("(").map(|(n, _)| n).unwrap_or(name);
     if name.starts_with("_") ||
       name == "offsetof" ||
-      name.starts_with("INT") ||
-      name.starts_with("UINT") ||
-      name.starts_with("list") ||
-      name.starts_with("trace") ||
+      ((name.starts_with("INT") || name.starts_with("UINT")) && name.ends_with("_C")) ||
+      // name.starts_with("list") ||
+      // name.starts_with("trace") ||
       name.starts_with("config") ||
-      name == "taskYIELD" || name == "portYIELD" ||
+      // name == "taskYIELD" || name == "portYIELD" ||
       name.ends_with("YIELD_FROM_ISR") ||
       name.ends_with("_CRITICAL_FROM_ISR") ||
       name.ends_with("DISABLE_INTERRUPTS") ||

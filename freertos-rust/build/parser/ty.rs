@@ -7,9 +7,9 @@ pub enum Type {
 }
 
 impl Type {
-  pub fn parse<'i, 't>(ctx: &Context<'_, '_>, tokens: &'i [&'t str]) -> IResult<&'i [&'t str], Self> {
+  pub fn parse<'i, 't>(tokens: &'i [&'t str]) -> IResult<&'i [&'t str], Self> {
     let (tokens, (_, (strvct, ty), _)) = tuple((
-      many0_count(token("const")), pair(opt(token("struct")), |tokens| Identifier::parse(ctx, tokens)), many0_count(token("const")),
+      many0_count(token("const")), pair(opt(token("struct")), Identifier::parse), many0_count(token("const")),
     ))(tokens)?;
 
     fold_many0(
@@ -21,10 +21,23 @@ impl Type {
     )(tokens)
   }
 
+  pub fn visit<'s, 'v>(&mut self, ctx: &mut Context<'s, 'v>) {
+    match self {
+      Self::Identifier { name, .. } => name.visit(ctx),
+      Self::Ptr { ty, mutable } => ty.visit(ctx),
+    }
+  }
+
   pub fn to_tokens(&self, ctx: &mut Context, tokens: &mut TokenStream) {
     match self {
-      Self::Identifier { name, .. }  => {
-        name.to_tokens(ctx, tokens)
+      Self::Identifier { name, .. } => {
+        if matches!(name, Identifier::Literal(id) if id == "void") {
+          tokens.append_all(quote! {
+            ::core::ffi::c_void
+          })
+        } else {
+          name.to_tokens(ctx, tokens)
+        }
       },
       Self::Ptr { ty, mutable } => {
         let ty = ty.to_token_stream(ctx);

@@ -32,5 +32,8 @@ pub(crate) use statement::*;
 mod decl;
 pub(crate) use decl::*;
 
+mod stringify;
+pub(crate) use stringify::*;
+
 use super::*;
 

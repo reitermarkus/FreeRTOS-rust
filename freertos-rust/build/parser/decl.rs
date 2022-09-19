@@ -9,13 +9,19 @@ pub struct Decl<'t> {
 }
 
 impl<'t> Decl<'t> {
-  pub fn parse<'i>(ctx: &Context<'_, '_>, tokens: &'i [&'t str]) -> IResult<&'i [&'t str], Self> {
+  pub fn parse<'i>(tokens: &'i [&'t str]) -> IResult<&'i [&'t str], Self> {
     let (tokens, ((static_storage, ty), name, _, rhs)) = tuple((
-      permutation((opt(token("static")), |tokens| Type::parse(ctx, tokens))),
-      |tokens| Identifier::parse(ctx, tokens), token("="), |tokens| Expr::parse(ctx, tokens),
+      permutation((opt(token("static")), Type::parse)),
+      Identifier::parse, token("="), Expr::parse,
     ))(tokens)?;
 
     Ok((tokens, Self { ty, name, rhs, is_static: static_storage.is_some() }))
+  }
+
+  pub fn visit<'s, 'v>(&mut self, ctx: &mut Context<'s, 'v>) {
+    self.ty.visit(ctx);
+    self.name.visit(ctx);
+    self.rhs.visit(ctx);
   }
 
   pub fn to_tokens(&self, ctx: &mut Context, tokens: &mut TokenStream) {
@@ -24,9 +30,15 @@ impl<'t> Decl<'t> {
     let rhs = self.rhs.to_token_stream(ctx);
 
     tokens.append_all(if self.is_static {
-      quote! { static mut #name: #ty = #rhs; }
+      quote! { static mut #name: #ty = #rhs }
     } else {
       quote! { let mut #name: #ty = #rhs }
     })
+  }
+
+  pub fn to_token_stream(&self, ctx: &mut Context) -> TokenStream {
+    let mut tokens = TokenStream::new();
+    self.to_tokens(ctx, &mut tokens);
+    tokens
   }
 }

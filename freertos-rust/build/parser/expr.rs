@@ -6,13 +6,12 @@ pub enum Expr<'t> {
   FunctionCall(FunctionCall<'t>),
   Cast { expr: Box<Expr<'t>>, ty: Type },
   Literal(String),
-  Deref { expr: Box<Self>, field: Identifier },
-  Stringify(Identifier),
+  FieldAccess { expr: Box<Self>, field: Identifier },
+  Stringify(Stringify),
   Concat(Vec<Expr<'t>>),
   UnaryOp { op: &'t str, expr: Box<Self>, prefix: bool },
   BinOp(Box<Self>, &'t str, Box<Self>),
   Ternary(Box<Self>, Box<Self>, Box<Self>),
-  AddrOf(Box<Self>),
   Asm(Asm<'t>),
 }
 
@@ -20,7 +19,7 @@ impl<'t> Expr<'t> {
   fn parse_string<'i>(tokens: &'i [&'t str]) -> IResult<&'i [&'t str], Self> {
     let mut parse_string = alt((
       map(string_literal, |s| Self::Literal(s.to_owned())),
-      map(preceded(pair(token("#"), meta), identifier), |id| Self::Stringify(Identifier::Literal(id.to_owned()))),
+      map(Stringify::parse, Self::Stringify),
     ));
 
     let (tokens, s) = parse_string(tokens)?;
@@ -40,28 +39,28 @@ impl<'t> Expr<'t> {
     )(tokens)
   }
 
-  fn parse_factor<'i>(ctx: &Context<'_, '_>, tokens: &'i [&'t str]) -> IResult<&'i [&'t str], Self> {
+  fn parse_factor<'i>(tokens: &'i [&'t str]) -> IResult<&'i [&'t str], Self> {
     alt((
       Self::parse_string,
       map(number_literal, |n| Self::Literal(n.to_owned())),
-      map(|tokens| Identifier::parse(ctx, tokens), |id| Self::Variable { name: id }),
-      delimited(pair(token("("), meta), |tokens| Self::parse(ctx, tokens), pair(meta, token(")"))),
+      map(Identifier::parse, |id| Self::Variable { name: id }),
+      delimited(pair(token("("), meta), Self::parse, pair(meta, token(")"))),
     ))(tokens)
   }
 
-  fn parse_term_prec1<'i>(ctx: &Context<'_, '_>, tokens: &'i [&'t str]) -> IResult<&'i [&'t str], Self> {
-    let (tokens, factor) = Self::parse_factor(ctx, tokens)?;
+  fn parse_term_prec1<'i>(tokens: &'i [&'t str]) -> IResult<&'i [&'t str], Self> {
+    let (tokens, factor) = Self::parse_factor(tokens)?;
 
     let (tokens, arg) = match factor {
       arg @ Expr::Variable { .. } | arg @ Expr::FunctionCall(..) |
-      arg @ Expr::Deref { .. } | arg @ Expr::AddrOf(..) => {
+      arg @ Expr::FieldAccess { .. } | arg @ Expr::UnaryOp { op: "&", .. } => {
         enum Access<'t> {
           Fn(Vec<Expr<'t>>),
-          Field(Identifier),
+          Field { field: Identifier, deref: bool },
         }
 
         if matches!(arg, Expr::Variable { name: Identifier::Literal(ref id) } if id == "__asm") {
-          if let Ok((tokens, asm)) = preceded(opt(token("volatile")), |tokens| Asm::parse(ctx, tokens))(tokens) {
+          if let Ok((tokens, asm)) = preceded(opt(token("volatile")), Asm::parse)(tokens) {
             return Ok((tokens, Expr::Asm(asm)))
           }
         }
@@ -71,20 +70,28 @@ impl<'t> Expr<'t> {
             map(
               delimited(
                 pair(token("("), meta),
-                separated_list0(tuple((meta, token(","), meta)), |tokens| Self::parse(ctx, tokens)),
+                separated_list0(tuple((meta, token(","), meta)), Self::parse),
                 pair(meta, token(")")),
               ),
               |args| Access::Fn(args)
             ),
             map(
-              pair(alt((token("."), token("->"))), |tokens| Identifier::parse(ctx, tokens)),
-              |(access, field)| Access::Field(field),
+              pair(alt((token("."), token("->"))), Identifier::parse),
+              |(access, field)| Access::Field { field, deref: access == "->" },
             ),
           )),
           move || arg.clone(),
           |acc, access| match (acc, access) {
             (Expr::Variable { name }, Access::Fn(args)) => Expr::FunctionCall(FunctionCall { name, args }),
-            (acc, Access::Field(field)) => Expr::Deref { expr: Box::new(acc), field },
+            (acc, Access::Field { field, deref }) => {
+              let acc = if deref {
+                Expr::UnaryOp { op: "*", expr: Box::new(acc), prefix: true }
+              } else {
+                acc
+              };
+
+              Expr::FieldAccess { expr: Box::new(acc), field }
+            },
             _ => unimplemented!(),
           },
         )(tokens)?;
@@ -101,16 +108,16 @@ impl<'t> Expr<'t> {
     Ok((tokens, arg))
   }
 
-  fn parse_term_prec2<'i>(ctx: &Context<'_, '_>, tokens: &'i [&'t str]) -> IResult<&'i [&'t str], Self> {
+  fn parse_term_prec2<'i>(tokens: &'i [&'t str]) -> IResult<&'i [&'t str], Self> {
     alt((
       map(
         pair(
           delimited(
             pair(token("("), meta),
-            |tokens| Type::parse(ctx, tokens),
+            Type::parse,
             pair(meta, token(")")),
           ),
-          |tokens| Self::parse_term_prec2(ctx, tokens),
+          Self::parse_term_prec2,
         ),
         |(ty, term)| {
           // TODO: Handle constness.
@@ -118,31 +125,28 @@ impl<'t> Expr<'t> {
         },
       ),
       map(
-        preceded(pair(token("&"), meta), |tokens| Self::parse_term_prec2(ctx, tokens)),
-        |expr| Expr::AddrOf(Box::new(expr)),
-      ),
-      map(
         pair(
           alt((
+            token("&"),
             token("++"), token("--"),
             token("+"), token("-"),
             token("!"), token("~"),
           )),
-          |tokens| Self::parse_term_prec2(ctx, tokens),
+          Self::parse_term_prec2,
         ),
         |(op, term)| {
           Expr::UnaryOp { op, expr: Box::new(term), prefix: true }
         }
       ),
-      |tokens| Self::parse_term_prec1(ctx, tokens),
+      Self::parse_term_prec1,
     ))(tokens)
   }
 
-  fn parse_term_prec3<'i>(ctx: &Context<'_, '_>, tokens: &'i [&'t str]) -> IResult<&'i [&'t str], Self> {
-    let (tokens, factor) = Self::parse_term_prec2(ctx, tokens)?;
+  fn parse_term_prec3<'i>(tokens: &'i [&'t str]) -> IResult<&'i [&'t str], Self> {
+    let (tokens, factor) = Self::parse_term_prec2(tokens)?;
 
     fold_many0(
-      pair(alt((token("*"), token("/"))), |tokens| Self::parse_term_prec2(ctx, tokens)),
+      pair(alt((token("*"), token("/"))), Self::parse_term_prec2),
       move || factor.clone(),
       |lhs, (op, rhs)| {
         Self::BinOp(Box::new(lhs), op, Box::new(rhs))
@@ -150,11 +154,11 @@ impl<'t> Expr<'t> {
     )(tokens)
   }
 
-  fn parse_term_prec4<'i>(ctx: &Context<'_, '_>, tokens: &'i [&'t str]) -> IResult<&'i [&'t str], Self> {
-    let (tokens, term) = Self::parse_term_prec3(ctx, tokens)?;
+  fn parse_term_prec4<'i>(tokens: &'i [&'t str]) -> IResult<&'i [&'t str], Self> {
+    let (tokens, term) = Self::parse_term_prec3(tokens)?;
 
     fold_many0(
-      pair(alt((token("+"), token("-"))), |tokens| Self::parse_term_prec3(ctx, tokens)),
+      pair(alt((token("+"), token("-"))), Self::parse_term_prec3),
       move || term.clone(),
       |lhs, (op, rhs)| {
         Self::BinOp(Box::new(lhs), op, Box::new(rhs))
@@ -162,11 +166,11 @@ impl<'t> Expr<'t> {
     )(tokens)
   }
 
-  fn parse_term_prec5<'i>(ctx: &Context<'_, '_>, tokens: &'i [&'t str]) -> IResult<&'i [&'t str], Self> {
-    let (tokens, term) = Self::parse_term_prec4(ctx, tokens)?;
+  fn parse_term_prec5<'i>(tokens: &'i [&'t str]) -> IResult<&'i [&'t str], Self> {
+    let (tokens, term) = Self::parse_term_prec4(tokens)?;
 
     fold_many0(
-      pair(alt((token("<<"), token(">>"))), |tokens| Self::parse_term_prec4(ctx, tokens)),
+      pair(alt((token("<<"), token(">>"))), Self::parse_term_prec4),
       move || term.clone(),
       |lhs, (op, rhs)| {
         Self::BinOp(Box::new(lhs), op, Box::new(rhs))
@@ -174,11 +178,11 @@ impl<'t> Expr<'t> {
     )(tokens)
   }
 
-  fn parse_term_prec6<'i>(ctx: &Context<'_, '_>, tokens: &'i [&'t str]) -> IResult<&'i [&'t str], Self> {
-    let (tokens, term) = Self::parse_term_prec5(ctx, tokens)?;
+  fn parse_term_prec6<'i>(tokens: &'i [&'t str]) -> IResult<&'i [&'t str], Self> {
+    let (tokens, term) = Self::parse_term_prec5(tokens)?;
 
     fold_many0(
-      pair(alt((token("<"), token("<="), token(">"), token(">="))), |tokens| Self::parse_term_prec5(ctx, tokens)),
+      pair(alt((token("<"), token("<="), token(">"), token(">="))), Self::parse_term_prec5),
       move || term.clone(),
       |lhs, (op, rhs)| {
         Self::BinOp(Box::new(lhs), op, Box::new(rhs))
@@ -186,11 +190,11 @@ impl<'t> Expr<'t> {
     )(tokens)
   }
 
-  fn parse_term_prec7<'i>(ctx: &Context<'_, '_>, tokens: &'i [&'t str]) -> IResult<&'i [&'t str], Self> {
-    let (tokens, term) = Self::parse_term_prec6(ctx, tokens)?;
+  fn parse_term_prec7<'i>(tokens: &'i [&'t str]) -> IResult<&'i [&'t str], Self> {
+    let (tokens, term) = Self::parse_term_prec6(tokens)?;
 
     fold_many0(
-      pair(alt((token("=="), token("!="))), |tokens| Self::parse_term_prec6(ctx, tokens)),
+      pair(alt((token("=="), token("!="))), Self::parse_term_prec6),
       move || term.clone(),
       |lhs, (op, rhs)| {
         Self::BinOp(Box::new(lhs), op, Box::new(rhs))
@@ -198,22 +202,22 @@ impl<'t> Expr<'t> {
     )(tokens)
   }
 
-  fn parse_term_prec13<'i>(ctx: &Context<'_, '_>, tokens: &'i [&'t str]) -> IResult<&'i [&'t str], Self> {
-    let (tokens, term) = Self::parse_term_prec7(ctx, tokens)?;
+  fn parse_term_prec13<'i>(tokens: &'i [&'t str]) -> IResult<&'i [&'t str], Self> {
+    let (tokens, term) = Self::parse_term_prec7(tokens)?;
 
     // Parse ternary.
     if let Ok((tokens, _)) = token("?")(tokens) {
-      let (tokens, if_branch) = Self::parse_term_prec7(ctx, tokens)?;
+      let (tokens, if_branch) = Self::parse_term_prec7(tokens)?;
       let (tokens, _) = token(":")(tokens)?;
-      let (tokens, else_branch) = Self::parse_term_prec7(ctx, tokens)?;
+      let (tokens, else_branch) = Self::parse_term_prec7(tokens)?;
       return Ok((tokens, Expr::Ternary(Box::new(term), Box::new(if_branch), Box::new(else_branch))))
     }
 
     Ok((tokens, term))
   }
 
-  fn parse_term_prec14<'i>(ctx: &Context<'_, '_>, tokens: &'i [&'t str]) -> IResult<&'i [&'t str], Self> {
-    let (tokens, term) = Self::parse_term_prec13(ctx, tokens)?;
+  fn parse_term_prec14<'i>(tokens: &'i [&'t str]) -> IResult<&'i [&'t str], Self> {
+    let (tokens, term) = Self::parse_term_prec13(tokens)?;
 
     fold_many0(
       pair(
@@ -224,7 +228,7 @@ impl<'t> Expr<'t> {
           token("<<="), token(">>="),
           token("&="), token("^="), token("|="),
         )),
-        |tokens| Self::parse_term_prec13(ctx, tokens),
+        Self::parse_term_prec13,
       ),
       move || term.clone(),
       |lhs, (op, rhs)| {
@@ -233,8 +237,43 @@ impl<'t> Expr<'t> {
     )(tokens)
   }
 
-  pub fn parse<'i>(ctx: &Context<'_, '_>, tokens: &'i [&'t str]) -> IResult<&'i [&'t str], Self> {
-    Self::parse_term_prec14(ctx, tokens)
+  pub fn parse<'i>(tokens: &'i [&'t str]) -> IResult<&'i [&'t str], Self> {
+    Self::parse_term_prec14(tokens)
+  }
+
+  pub fn visit<'s, 'v>(&mut self, ctx: &mut Context<'s, 'v>) {
+    match self {
+      Self::Cast { expr, ty } => {
+        expr.visit(ctx);
+        ty.visit(ctx);
+      },
+      Self::Variable { name } => name.visit(ctx),
+      Self::FunctionCall(call) => call.visit(ctx),
+      Self::Literal(lit) => (),
+      Self::FieldAccess { expr, field } => {
+        expr.visit(ctx);
+        field.visit(ctx);
+      },
+      Self::Stringify(stringify) => stringify.visit(ctx),
+      Self::Concat(names) => {
+        for name in names {
+          name.visit(ctx);
+        }
+      },
+      Self::UnaryOp { op, expr, prefix } => {
+        expr.visit(ctx);
+      },
+      Self::BinOp(lhs, op, rhs) => {
+        lhs.visit(ctx);
+        rhs.visit(ctx);
+      },
+      Self::Ternary(cond, if_branch, else_branch) => {
+        cond.visit(ctx);
+        if_branch.visit(ctx);
+        else_branch.visit(ctx);
+      },
+      Self::Asm(asm) => asm.visit(ctx),
+    }
   }
 
   pub fn to_tokens(&self, ctx: &mut Context, tokens: &mut TokenStream) {
@@ -265,20 +304,16 @@ impl<'t> Expr<'t> {
         let lit = lit.parse::<TokenStream>().unwrap();
         tokens.append_all(quote! { #lit });
       },
-      Self::Deref { ref expr, ref field } => {
+      Self::FieldAccess { ref expr, ref field } => {
         let expr = expr.to_token_stream(ctx);
         let field = field.to_token_stream(ctx);
 
         tokens.append_all(quote! {
-          Deref(unsafe {{ &mut *::core::ptr::addr_of_mut!((*#expr).#field) }}).convert()
+          (#expr).#field
         })
       },
-      Self::Stringify(id) => {
-        let id = id.to_token_stream(ctx);
-
-        tokens.append_all(quote! {
-          ::core::stringify!(#id)
-        })
+      Self::Stringify(stringify) => {
+        stringify.to_tokens(ctx, tokens);
       },
       Self::Concat(ref names) => {
         let names = names.iter().map(|e| e.to_token_stream(ctx)).collect::<Vec<_>>();
@@ -298,9 +333,11 @@ impl<'t> Expr<'t> {
           ("++", false) => quote! { { let prev = #expr; #expr += 1; prev } },
           ("--", false) => quote! { { let prev = #expr; #expr -= 1; prev } },
           ("!", _) => quote! { (#expr == Default::default()) },
-          ("~", _) => quote! { !#expr },
-          ("+", _) => quote! { +#expr },
-          ("-", _) => quote! { -#expr },
+          ("~", _) => quote! { (!#expr) },
+          ("+", _) => quote! { (+#expr) },
+          ("-", _) => quote! { (-#expr) },
+          ("*", true) => quote! { (*#expr) },
+          ("&", true) => quote! { ::core::ptr::addr_of_mut(#expr) },
           (op, _) => todo!("op = {:?}", op),
         })
       },
@@ -315,6 +352,7 @@ impl<'t> Expr<'t> {
           "&=" => quote! { { #lhs &= #rhs; #lhs } },
           "|=" => quote! { { #lhs |= #rhs; #lhs } },
           "^=" => quote! { { #lhs ^= #rhs; #lhs } },
+          "==" => quote! { ( #lhs == #rhs ) },
           "+"  => quote! { ( #lhs +  #rhs ) },
           "-"  => quote! { ( #lhs -  #rhs ) },
           "*"  => quote! { ( #lhs *  #rhs ) },
@@ -337,13 +375,6 @@ impl<'t> Expr<'t> {
           } else {
             #else_branch
           }
-        })
-      },
-      Self::AddrOf(ref expr) => {
-        let expr = expr.to_token_stream(ctx);
-
-        tokens.append_all(quote! {
-          ::core::ptr::addr_of_mut(#expr)
         })
       },
       Self::Asm(ref asm) => asm.to_tokens(ctx, tokens),

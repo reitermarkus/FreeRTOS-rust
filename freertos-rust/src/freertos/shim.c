@@ -4,6 +4,8 @@
 #error "`configASSERT` is redefined by this crate, remove it or use `#ifndef RUST` to disable it."
 #endif
 
+#define configENABLE_BACKWARD_COMPATIBILITY 0
+
 #include <stddef.h>
 
 extern void vAssertCalled(

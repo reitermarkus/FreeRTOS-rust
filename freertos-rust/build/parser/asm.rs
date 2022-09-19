@@ -9,14 +9,14 @@ pub struct Asm<'t> {
 }
 
 impl<'t> Asm<'t> {
-  pub fn parse<'i>(ctx: &Context<'_, '_>, tokens: &'i [&'t str]) -> IResult<&'i [&'t str], Self> {
+  pub fn parse<'i>(tokens: &'i [&'t str]) -> IResult<&'i [&'t str], Self> {
     let (tokens, (template, outputs, inputs, clobbers)) = delimited(
       pair(token("("), meta),
       tuple((
         separated_list0(tuple((meta, token(","), meta)), string_literal),
-        opt(preceded(token(":"), separated_list0(tuple((meta, token(","), meta)), |tokens| Expr::parse(ctx, tokens)))),
-        opt(preceded(token(":"), separated_list0(tuple((meta, token(","), meta)), |tokens| Expr::parse(ctx, tokens)))),
-        opt(preceded(token(":"), separated_list0(tuple((meta, token(","), meta)), |tokens| Expr::parse(ctx, tokens)))),
+        opt(preceded(token(":"), separated_list0(tuple((meta, token(","), meta)), Expr::parse))),
+        opt(preceded(token(":"), separated_list0(tuple((meta, token(","), meta)), Expr::parse))),
+        opt(preceded(token(":"), separated_list0(tuple((meta, token(","), meta)), Expr::parse))),
       )),
       pair(meta, token(")")),
     )(tokens)?;
@@ -30,6 +30,9 @@ impl<'t> Asm<'t> {
     }).collect::<Vec<_>>();
 
     Ok((tokens, Self { template, outputs, inputs, clobbers }))
+  }
+
+  pub fn visit<'s, 'v>(&mut self, ctx: &mut Context<'s, 'v>) {
   }
 
   pub fn to_tokens(&self, ctx: &mut Context, tokens: &mut TokenStream) {

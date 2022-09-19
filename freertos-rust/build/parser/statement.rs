@@ -15,9 +15,9 @@ pub enum Statement<'t> {
 }
 
 impl<'t> Statement<'t> {
-  pub fn parse<'i>(ctx: &Context, tokens: &'i [&'t str]) -> IResult<&'i [&'t str], Self> {
-    let mut condition = || delimited(pair(token("("), meta), |tokens| Expr::parse(ctx, tokens), pair(meta, token(")")));
-    let mut this = || |tokens| Self::parse(ctx, tokens);
+  pub fn parse<'i>(tokens: &'i [&'t str]) -> IResult<&'i [&'t str], Self> {
+    let mut condition = || delimited(pair(token("("), meta), Expr::parse, pair(meta, token(")")));
+    let mut this = || Self::parse;
     let mut block = || map(this(), |stmt| if let Self::Block(stmts) = stmt { stmts } else { vec![stmt] } );
 
     alt((
@@ -49,25 +49,62 @@ impl<'t> Statement<'t> {
         |(block, condition)| Self::DoWhile { block, condition }
       ),
       map(
-        terminated(|tokens| FunctionDecl::parse(ctx, tokens), alt((token(";"), map(eof, |_| "")))),
+        terminated(FunctionDecl::parse, alt((token(";"), map(eof, |_| "")))),
         Self::FunctionDecl,
       ),
       map(
-        terminated(|tokens| Decl::parse(ctx, tokens), alt((token(";"), map(eof, |_| "")))),
+        terminated(Decl::parse, alt((token(";"), map(eof, |_| "")))),
         Self::Decl,
       ),
       map(
-        terminated(|tokens| Expr::parse(ctx, tokens), token(";")),
+        terminated(Expr::parse, token(";")),
         Self::Expr,
       ),
     ))(tokens)
   }
 
+  pub fn visit<'s, 'v>(&mut self, ctx: &mut Context<'s, 'v>) {
+    match self {
+      Self::Expr(expr) => expr.visit(ctx),
+      Self::FunctionDecl(f) => f.visit(ctx),
+      Self::Decl(d) => d.visit(ctx),
+      Self::Block(block) => {
+        for stmt in block {
+          stmt.visit(ctx);
+        }
+      },
+      Self::If { condition, if_branch, else_branch } => {
+        condition.visit(ctx);
+
+        for stmt in if_branch {
+          stmt.visit(ctx);
+        }
+
+        for stmt in else_branch {
+          stmt.visit(ctx);
+        }
+      },
+      Self::DoWhile { block, condition } => {
+        for stmt in block {
+          stmt.visit(ctx);
+        }
+
+        condition.visit(ctx);
+      }
+    }
+  }
+
   pub fn to_tokens(&self, ctx: &mut Context, tokens: &mut TokenStream) {
     match self {
-      Self::Expr(expr) => expr.to_tokens(ctx, tokens),
+      Self::Expr(expr) => {
+        let expr = expr.to_token_stream(ctx);
+        tokens.append_all(quote! { #expr; })
+      },
       Self::FunctionDecl(f) => f.to_tokens(ctx, tokens),
-      Self::Decl(d) => d.to_tokens(ctx, tokens),
+      Self::Decl(d) => {
+        let decl = d.to_token_stream(ctx);
+        tokens.append_all(quote! { #decl; })
+      },
       Self::Block(block) => {
         let block = block.iter().map(|stmt| stmt.to_token_stream(ctx)).collect::<Vec<_>>();
 

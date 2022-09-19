@@ -9,18 +9,27 @@ pub struct FunctionDecl {
 }
 
 impl FunctionDecl {
-  pub fn parse<'i, 't>(ctx: &Context<'_, '_>, tokens: &'i [&'t str]) -> IResult<&'i [&'t str], Self> {
+  pub fn parse<'i, 't>(tokens: &'i [&'t str]) -> IResult<&'i [&'t str], Self> {
     let (tokens, ((static_storage, ret_ty), name, args)) = tuple((
-      permutation((opt(token("static")), |tokens| Type::parse(ctx, tokens))),
-      |tokens| Identifier::parse(ctx, tokens),
+      permutation((opt(token("static")), Type::parse)),
+      Identifier::parse,
       delimited(
         pair(token("("), meta),
-        separated_list0(pair(meta, token(",")), pair(|tokens| Type::parse(ctx, tokens), |tokens| Identifier::parse(ctx, tokens))),
+        separated_list0(pair(meta, token(",")), pair(Type::parse, Identifier::parse)),
         pair(meta, token(")")),
       ),
     ))(tokens)?;
 
     Ok((tokens, Self { ret_ty, name, args, is_static: static_storage.is_some() }))
+  }
+
+  pub fn visit<'s, 'v>(&mut self, ctx: &mut Context<'s, 'v>) {
+    self.ret_ty.visit(ctx);
+    self.name.visit(ctx);
+    for (ty, arg) in self.args.iter_mut() {
+      ty.visit(ctx);
+      arg.visit(ctx);
+    }
   }
 
   pub fn to_tokens(&self, ctx: &mut Context, tokens: &mut TokenStream) {

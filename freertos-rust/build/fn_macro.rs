@@ -19,13 +19,14 @@ pub enum MacroArgType {
 
 #[derive(Debug)]
 pub struct Context<'s, 't> {
-  pub args: HashMap<&'s str, Cell<MacroArgType>>,
+  pub args: HashMap<&'s str, MacroArgType>,
+  pub export_as_macro: bool,
   functions: Vec<&'t str>,
 }
 
 impl<'s, 't> Context<'s, 't> {
   pub fn is_macro_arg(&self, name: &str) -> bool {
-    self.args.get(name).map(|ty| ty.get() != MacroArgType::Unknown).unwrap_or(false)
+    self.args.get(name).map(|&ty| self.export_as_macro || ty != MacroArgType::Unknown).unwrap_or(false)
   }
 }
 
@@ -44,25 +45,39 @@ impl<'t> FnMacro<'t> {
 
     let mut args = HashMap::new();
     for &arg in &sig.arguments {
-      args.insert(arg, Cell::new(MacroArgType::Unknown));
+      args.insert(arg, MacroArgType::Unknown);
     }
 
-    let mut ctx = Context { args, functions: vec![] };
-    let (_, body) = MacroBody::parse(&ctx, &body).unwrap();
+    let (_, mut body) = MacroBody::parse(&body).unwrap();
 
-    let args = sig.arguments.into_iter().map(|a| (a, ctx.args.remove(a).unwrap().into_inner())).collect();
+    let mut ctx = Context { args, export_as_macro: false, functions: vec![] };
+    body.visit(&mut ctx);
 
+    let args = sig.arguments.into_iter().map(|a| (a, ctx.args.remove(a).unwrap())).collect();
     Ok(Self { name: sig.name, args, body })
   }
 
   pub fn write(&self, f: &mut String) -> fmt::Result {
-    let generate_macro = !self.args.iter().all(|&(_, ty)| ty == MacroArgType::Unknown);
+    let mut export_as_macro = !self.args.iter().all(|&(_, ty)| ty == MacroArgType::Unknown);
+    let func_args = self.args.iter().filter_map(|&(arg, ty)| {
+      let id = Ident::new(arg, Span::call_site());
+      if let Some(ty) = variable_type(self.name, arg) {
+        let ty = Type::Verbatim(ty.parse::<TokenStream>().unwrap());
+        Some(quote! { #id: #ty })
+      } else {
+        None
+      }
+    }).collect::<Vec<_>>();
+
+    if func_args.len() != self.args.len() {
+      export_as_macro = true;
+    }
 
     let mut args = HashMap::new();
     for &(arg, ty) in &self.args {
-      args.insert(arg, Cell::new(ty));
+      args.insert(arg, ty);
     }
-    let mut ctx = Context { args, functions: vec![] };
+    let mut ctx = Context { args, export_as_macro, functions: vec![] };
 
     let name = Ident::new(self.name, Span::call_site());
 
@@ -72,7 +87,7 @@ impl<'t> FnMacro<'t> {
       MacroBody::Expr(expr) => expr.to_tokens(&mut ctx, &mut body),
     }
 
-    if generate_macro {
+    if export_as_macro {
       let args = self.args.iter().map(|&(arg, ty)| {
         let id = Ident::new(arg, Span::call_site());
 
@@ -91,26 +106,23 @@ impl<'t> FnMacro<'t> {
         }
       })
     } else {
-      let args = self.args.iter().map(|&(arg, ty)| {
-        let id = Ident::new(arg, Span::call_site());
-        if let Some(ty) = variable_type(self.name, arg) {
-          let ty = Type::Verbatim(ty.parse::<TokenStream>().unwrap());
-          quote! { #id: #ty }
-        } else {
-          quote! { #id: _ }
-        }
-      }).collect::<Vec<_>>();
-
       let return_type = return_type(&self.name).map(|ty| {
         let ty = Type::Verbatim(ty.parse::<TokenStream>().unwrap());
         quote! { -> #ty }
       });
 
+      let semicolon = if return_type.is_none() {
+        Some(quote! { ; })
+      } else {
+        None
+      };
+
       writeln!(f, "{}", quote! {
         #[allow(non_snake_case)]
         #[inline(always)]
-        pub unsafe extern "C" fn #name(#(mut #args),*) #return_type {
+        pub unsafe extern "C" fn #name(#(mut #func_args),*) #return_type {
           #body
+          #semicolon
         }
       })
     }
@@ -220,7 +232,7 @@ pub enum MacroBody<'t> {
 }
 
 impl<'t> MacroBody<'t> {
-  pub fn parse<'i>(ctx: &Context<'_, '_>, input: &'i [&'t str]) -> IResult<&'i [&'t str], Self> {
+  pub fn parse<'i>(input: &'i [&'t str]) -> IResult<&'i [&'t str], Self> {
     let (input, _) = meta(input)?;
 
     if input.is_empty() {
@@ -229,13 +241,20 @@ impl<'t> MacroBody<'t> {
 
     let (input, body) = terminated(
       alt((
-        map(|tokens| Statement::parse(ctx, tokens), MacroBody::Block),
-        map(|tokens| Expr::parse(ctx, tokens), MacroBody::Expr),
+        map(Statement::parse, MacroBody::Block),
+        map(Expr::parse, MacroBody::Expr),
       )),
       eof,
     )(input)?;
     assert!(input.is_empty());
 
     Ok((input, body))
+  }
+
+  pub fn visit<'s, 'v>(&mut self, ctx: &mut Context<'s, 'v>) {
+    match self {
+      Self::Block(stmt) => stmt.visit(ctx),
+      Self::Expr(expr) => expr.visit(ctx),
+    }
   }
 }

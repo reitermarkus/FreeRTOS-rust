@@ -1,6 +1,16 @@
 
 use super::*;
 
+pub struct LitIdentifier {
+  id: String,
+}
+
+impl LitIdentifier {
+  pub fn parse<'i, 't>(tokens: &'i [&'t str]) -> IResult<&'i [&'t str], Self> {
+    map(identifier, |id| Self { id: id.to_owned() })(tokens)
+  }
+}
+
 pub fn identifier<'i, 't>(tokens: &'i [&'t str]) -> IResult<&'i [&'t str], &'t str> {
   if let Some(token) = tokens.get(0) {
     let mut it = token.chars();
@@ -14,6 +24,17 @@ pub fn identifier<'i, 't>(tokens: &'i [&'t str]) -> IResult<&'i [&'t str], &'t s
   Err(nom::Err::Error(nom::error::Error::new(tokens, nom::error::ErrorKind::Fail)))
 }
 
+fn concat_identifier<'i, 't>(tokens: &'i [&'t str]) -> IResult<&'i [&'t str], &'t str> {
+  if let Some(token) = tokens.get(0) {
+    let mut it = token.chars();
+    if it.all(|c| matches!(c, 'a'..='z' | 'A'..='Z' | '_' | '0'..='9')) {
+      return Ok((&tokens[1..], token))
+    }
+  }
+
+  Err(nom::Err::Error(nom::error::Error::new(tokens, nom::error::ErrorKind::Fail)))
+}
+
 #[derive(Debug, Clone)]
 pub enum Identifier {
   Literal(String),
@@ -21,11 +42,14 @@ pub enum Identifier {
 }
 
 impl Identifier {
-  pub fn parse<'i, 't>(ctx: &Context<'_, '_>, tokens: &'i [&'t str]) -> IResult<&'i [&'t str], Self> {
+  pub fn parse<'i, 't>(tokens: &'i [&'t str]) -> IResult<&'i [&'t str], Self> {
     let (tokens, id) = identifier(tokens)?;
 
-    let (tokens, id) = fold_many0(
-      preceded(tuple((meta, token("##"), meta)), identifier),
+    fold_many0(
+      preceded(
+        delimited(meta, token("##"), meta),
+        concat_identifier,
+      ),
       move || Self::Literal(id.to_owned()),
       |acc, item| {
         match acc {
@@ -36,17 +60,18 @@ impl Identifier {
           }
         }
       }
-    )(tokens)?;
+    )(tokens)
+  }
 
-    if let Self::Concat(ref ids) = id {
+  pub fn visit<'s, 't>(&mut self, ctx: &mut Context<'s, 't>) {
+    if let Self::Concat(ref ids) = self {
       for id in ids {
-        if let Some(arg_ty) = ctx.args.get(id.as_str()) {
-          arg_ty.set(MacroArgType::Ident);
+        if let Some(arg_ty) = ctx.args.get_mut(id.as_str()) {
+          *arg_ty = MacroArgType::Ident;
+          ctx.export_as_macro = true;
         }
       }
     }
-
-    Ok((tokens, id))
   }
 
   pub fn to_tokens(&self, ctx: &mut Context, tokens: &mut TokenStream) {

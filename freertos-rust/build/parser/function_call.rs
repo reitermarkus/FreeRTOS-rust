@@ -27,4 +27,11 @@ impl FunctionCall<'_> {
       #name(#(#args),*)
     })
   }
+
+  pub fn visit<'s, 't>(&mut self, ctx: &mut Context<'s, 't>) {
+    self.name.visit(ctx);
+    for arg in self.args.iter_mut() {
+      arg.visit(ctx);
+    }
+  }
 }
