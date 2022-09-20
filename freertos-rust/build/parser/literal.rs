@@ -1,3 +1,5 @@
+use std::str;
+
 use nom::combinator::cond;
 use nom::character::complete::anychar;
 use nom::character::complete::char;
@@ -13,6 +15,7 @@ use nom::character::is_hex_digit;
 use nom::bytes::complete::escaped;
 use nom::combinator::not;
 use nom::combinator::consumed;
+use quote::TokenStreamExt;
 use quote::ToTokens;
 
 use super::*;

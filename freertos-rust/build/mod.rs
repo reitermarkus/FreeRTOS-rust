@@ -8,64 +8,14 @@ use std::process::exit;
 use std::sync::{Mutex, Arc};
 
 use bindgen::{callbacks::{ParseCallbacks, IntKind}};
-use nom::multi::{separated_list0};
-use nom::branch::alt;
-use nom::combinator::map;
-use nom::sequence::delimited;
-use nom::combinator::{opt, eof};
-use nom::sequence::tuple;
-use nom::IResult;
-use nom::multi::{many0, fold_many0};
-use nom::sequence::pair;
-use nom::sequence::preceded;
-use nom::branch::permutation;
-use nom::multi::many0_count;
-use nom::sequence::terminated;
 
 mod build;
 mod constants;
-mod fn_macro;
-use fn_macro::*;
 mod parser;
 use parser::*;
 
-fn comment<'i, 't>(tokens: &'i [&'t str]) -> IResult<&'i [&'t str], &'t str> {
-  if let Some(token) = tokens.get(0) {
-    if token.starts_with("/*") && token.ends_with("*/") {
-      return Ok((&tokens[1..], token))
-    }
-  }
-
-  Err(nom::Err::Error(nom::error::Error::new(tokens, nom::error::ErrorKind::Fail)))
-}
-
-fn meta<'i, 't>(input: &'i [&'t str]) -> IResult<&'i [&'t str], Vec<&'t str>> {
-  many0(comment)(input)
-}
-
-fn token<'i, 't>(token: &'static str) -> impl Fn(&'i [&'t str]) -> IResult<&'i [&'t str], &'t str>
-where
-  't: 'i,
-{
-  move |tokens: &[&str]| {
-    if let Some(token2) = tokens.get(0).as_deref() {
-      let token2 = if token2.starts_with("\\\n") { // TODO: Fix in tokenizer/lexer.
-        &token2[2..]
-      } else {
-        token2
-      };
-
-      if token2 == token {
-        return Ok((&tokens[1..], token2))
-      }
-    }
-
-    Err(nom::Err::Error(nom::error::Error::new(tokens, nom::error::ErrorKind::Fail)))
-  }
-}
-
-pub(crate) fn variable_type(macro_name: &str, variable_name: &str) -> Option<&'static str> {
-  Some(match variable_name {
+pub(crate) fn variable_type(macro_name: &str, variable_name: &str) -> Option<syn::Type> {
+  let ty = match variable_name {
     "pxList" => "*mut List_t",
     "pxListItem" | "pxItem" => "*mut ListItem_t",
     "pxHigherPriorityTaskWoken" | "pxYieldPending" => "*mut BaseType_t",
@@ -101,44 +51,46 @@ pub(crate) fn variable_type(macro_name: &str, variable_name: &str) -> Option<&'s
     "x" if macro_name == "xTaskCreateRestricted" => "*mut TaskParameters_t",
     "xClearCountOnExit" | "xSwitchRequired" => "BaseType_t",
     _ => return None,
-  })
+  };
+
+  Some(syn::Type::Verbatim(ty.parse().unwrap()))
 }
 
-pub(crate) fn return_type(macro_name: &str) -> Option<&'static str> {
+pub(crate) fn return_type(macro_name: &str) -> Option<syn::Type> {
   if macro_name.starts_with("pdMS_TO_TICKS") {
-    return Some("TickType_t")
+    return Some(syn::parse_quote! { TickType_t })
   }
 
   if macro_name.contains("GetMutexHolder") {
-    return Some("TaskHandle_t")
+    return Some(syn::parse_quote! { TaskHandle_t })
   }
 
   if macro_name.starts_with("portGET_RUN_TIME_COUNTER_VALUE") {
-    return Some("::core::ffi::c_ulong")
+    return Some(syn::parse_quote! { ::core::ffi::c_ulong })
   }
 
   if macro_name.starts_with("port") && macro_name.ends_with("_PRIORITY") {
-    return Some("UBaseType_t")
+    return Some(syn::parse_quote! { UBaseType_t })
   }
 
   if macro_name.starts_with("xSemaphoreCreate") {
-    return Some("SemaphoreHandle_t")
+    return Some(syn::parse_quote! { SemaphoreHandle_t })
   }
 
   if macro_name.starts_with("xQueueCreate") {
-    return Some("QueueHandle_t")
+    return Some(syn::parse_quote! { QueueHandle_t })
   }
 
   if macro_name.starts_with("ul") {
-    return Some("u32")
+    return Some(syn::parse_quote! { u32 })
   }
 
   if macro_name.starts_with("x") {
-    return Some("BaseType_t")
+    return Some(syn::parse_quote! { BaseType_t })
   }
 
   if macro_name.starts_with("ux") {
-    return Some("UBaseType_t")
+    return Some(syn::parse_quote! { UBaseType_t })
   }
 
   None
@@ -209,7 +161,7 @@ impl ParseCallbacks for Callbacks {
 
     let mut f = String::new();
 
-    fn_macro.write(&mut f).unwrap();
+    fn_macro.write(&mut f, variable_type, return_type).unwrap();
 
     self.function_macros.lock().unwrap().push(f);
   }

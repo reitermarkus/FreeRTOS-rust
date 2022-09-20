@@ -1,3 +1,6 @@
+use quote::TokenStreamExt;
+use quote::ToTokens;
+
 use super::*;
 
 /// Stringification of a macro argument.
