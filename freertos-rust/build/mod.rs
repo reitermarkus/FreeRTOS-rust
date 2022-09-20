@@ -8,11 +8,10 @@ use std::process::exit;
 use std::sync::{Mutex, Arc};
 
 use bindgen::{callbacks::{ParseCallbacks, IntKind}};
+use cmacro::FnMacro;
 
 mod build;
 mod constants;
-mod parser;
-use parser::*;
 
 pub(crate) fn variable_type(macro_name: &str, variable_name: &str) -> Option<syn::Type> {
   let ty = match variable_name {

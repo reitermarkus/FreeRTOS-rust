@@ -1,7 +1,8 @@
 [workspace]
 members = [
     "freertos-rust",
-    "freertos-rust-examples"
+    "freertos-rust-examples",
+    "cmacro",
 ]
 
 [profile.release]
