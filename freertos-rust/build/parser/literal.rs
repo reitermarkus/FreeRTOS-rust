@@ -1,10 +1,25 @@
 use nom::combinator::cond;
+use nom::character::complete::anychar;
+use nom::character::complete::char;
+use nom::combinator::all_consuming;
+use nom::character::complete::one_of;
+use nom::bytes::complete::take_while_m_n;
+use nom::combinator::map_res;
+use nom::character::is_oct_digit;
+use nom::bytes::complete::tag_no_case;
+use nom::bytes::complete::take_while;
+use nom::combinator::map_opt;
+use nom::character::is_hex_digit;
+use nom::bytes::complete::escaped;
+use nom::combinator::not;
+use nom::combinator::consumed;
 use quote::ToTokens;
 
 use super::*;
 
 #[derive(Debug, Clone)]
 pub enum Lit {
+  Char(LitChar),
   String(LitString),
   Float(LitFloat),
   Int(LitInt),
@@ -13,6 +28,7 @@ pub enum Lit {
 impl Lit {
   pub fn parse<'i, 't>(input: &'i [&'t str]) -> IResult<&'i [&'t str], Self> {
     alt((
+      map(LitChar::parse, Self::Char),
       map(LitString::parse, Self::String),
       map(LitFloat::parse, Self::Float),
       map(LitInt::parse, Self::Int),
@@ -23,10 +39,85 @@ impl Lit {
 impl ToTokens for Lit {
   fn to_tokens(&self, tokens: &mut TokenStream) {
     match self {
+      Self::Char(c) => c.to_tokens(tokens),
       Self::String(s) => s.to_tokens(tokens),
       Self::Float(f) => f.to_tokens(tokens),
       Self::Int(i) => i.to_tokens(tokens),
     }
+  }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LitChar {
+  repr: char,
+}
+
+impl LitChar {
+  fn unescaped_char(input: &[u8]) -> IResult<&[u8], char> {
+    map_opt(anychar, |c| if c == '\\' { None } else { Some(c) })(input)
+  }
+
+  fn escaped_char(input: &[u8]) -> IResult<&[u8], char> {
+    preceded(
+      char('\\'),
+      alt((
+        map(char('a'), |_| '\x07'),
+        map(char('b'), |_| '\x08'),
+        map(char('e'), |_| '\x1b'),
+        map(char('f'), |_| '\x0c'),
+        map(char('n'), |_| '\n'),
+        map(char('r'), |_| '\r'),
+        map(char('t'), |_| '\t'),
+        map(char('v'), |_| '\x0b'),
+        one_of(r#"\'"?"#),
+        map_res(take_while_m_n(1, 3, is_oct_digit), |n| {
+          let s = str::from_utf8(n).unwrap();
+          u8::from_str_radix(s, 8).map(|b| b as char)
+        }),
+        preceded(tag_no_case("x"), map_res(take_while(is_hex_digit), |n: &[u8]| {
+          let start = n.len().max(2) - 2;
+          let s = str::from_utf8(&n[start..]).unwrap();
+          u8::from_str_radix(s, 16).map(|b| b as char)
+        })),
+        preceded(tag_no_case("u"), map_opt(take_while_m_n(4, 4, is_hex_digit), |n: &[u8]| {
+          let s = str::from_utf8(n).unwrap();
+          u32::from_str_radix(s, 16).ok().and_then(|b| char::from_u32(b))
+        })),
+        preceded(tag_no_case("U"), map_opt(take_while_m_n(8, 8, is_hex_digit), |n: &[u8]| {
+          let s = str::from_utf8(n).unwrap();
+          u32::from_str_radix(s, 16).ok().and_then(|b| char::from_u32(b))
+        })),
+      )
+    ))(input)
+  }
+
+  fn from_str(input: &str) -> IResult<&[u8], char> {
+    all_consuming(delimited(
+      char('\''),
+      alt((
+        Self::escaped_char,
+        Self::unescaped_char,
+      )),
+      char('\''),
+    ))(input.as_bytes())
+  }
+
+  pub fn parse<'i, 't>(input: &'i [&'t str]) -> IResult<&'i [&'t str], Self> {
+    if let Some(token) = input.get(0) {
+      let input = &input[1..];
+
+      if let Ok((_, c)) = Self::from_str(token) {
+        return Ok((input, Self { repr: c }))
+      }
+    }
+
+    Err(nom::Err::Error(nom::error::Error::new(input, nom::error::ErrorKind::Fail)))
+  }
+}
+
+impl ToTokens for LitChar {
+  fn to_tokens(&self, tokens: &mut TokenStream) {
+    self.repr.to_tokens(tokens)
   }
 }
 
