@@ -1,10 +1,8 @@
 use std::fmt::{self, Write};
 use std::collections::HashMap;
-use std::cell::Cell;
 use std::str;
 
-use quote::{TokenStreamExt, quote};
-use syn::Token;
+use quote::quote;
 use proc_macro2::{TokenStream, Ident, Span};
 
 use nom::multi::{separated_list0};
@@ -86,6 +84,7 @@ where
   }
 }
 
+/// Type of a macro argument.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MacroArgType {
   /// `ident` type
@@ -96,10 +95,10 @@ pub enum MacroArgType {
 }
 
 #[derive(Debug)]
-pub struct Context<'s, 't> {
-  pub args: HashMap<&'s str, MacroArgType>,
-  pub export_as_macro: bool,
-  functions: Vec<&'t str>,
+pub struct Context<'s, 'f> {
+  args: HashMap<&'s str, MacroArgType>,
+  export_as_macro: bool,
+  functions: HashMap<&'f str, Vec<String>>,
 }
 
 impl<'s, 't> Context<'s, 't> {
@@ -128,7 +127,7 @@ impl<'t> FnMacro<'t> {
 
     let (_, mut body) = MacroBody::parse(&body).unwrap();
 
-    let mut ctx = Context { args, export_as_macro: false, functions: vec![] };
+    let mut ctx = Context { args, export_as_macro: false, functions: HashMap::new() };
     body.visit(&mut ctx);
 
     let args = sig.arguments.into_iter().map(|a| (a, ctx.args.remove(a).unwrap())).collect();
@@ -142,7 +141,7 @@ impl<'t> FnMacro<'t> {
     mut return_type: impl FnMut(&str) -> Option<syn::Type>,
   ) -> fmt::Result {
     let mut export_as_macro = !self.args.iter().all(|&(_, ty)| ty == MacroArgType::Unknown);
-    let func_args = self.args.iter().filter_map(|&(arg, ty)| {
+    let func_args = self.args.iter().filter_map(|&(arg, _)| {
       let id = Ident::new(arg, Span::call_site());
       if let Some(ty) = variable_type(self.name, arg) {
         Some(quote! { #id: #ty })
@@ -159,7 +158,7 @@ impl<'t> FnMacro<'t> {
     for &(arg, ty) in &self.args {
       args.insert(arg, ty);
     }
-    let mut ctx = Context { args, export_as_macro, functions: vec![] };
+    let mut ctx = Context { args, export_as_macro, functions: HashMap::new() };
 
     let name = Ident::new(self.name, Span::call_site());
 

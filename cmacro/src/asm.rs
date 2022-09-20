@@ -1,9 +1,9 @@
 use quote::TokenStreamExt;
-use quote::ToTokens;
 
 use super::*;
 
-#[derive(Debug, Clone)]
+/// An inline assemble call.
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Asm<'t> {
   template: Vec<LitString>,
   outputs: Vec<Expr<'t>>,
@@ -35,7 +35,7 @@ impl<'t> Asm<'t> {
     Ok((tokens, Self { template, outputs, inputs, clobbers }))
   }
 
-  pub fn visit<'s, 'v>(&mut self, ctx: &mut Context<'s, 'v>) {
+  pub fn visit<'s, 'v>(&mut self, _ctx: &mut Context<'s, 'v>) {
   }
 
   pub fn to_tokens(&self, ctx: &mut Context, tokens: &mut TokenStream) {

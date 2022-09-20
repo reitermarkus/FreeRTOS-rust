@@ -1,26 +1,14 @@
 use std::str;
 
-use nom::combinator::cond;
-use nom::character::complete::anychar;
-use nom::character::complete::char;
-use nom::combinator::all_consuming;
-use nom::character::complete::one_of;
-use nom::bytes::complete::take_while_m_n;
-use nom::combinator::map_res;
-use nom::character::is_oct_digit;
-use nom::bytes::complete::tag_no_case;
-use nom::bytes::complete::take_while;
-use nom::combinator::map_opt;
-use nom::character::is_hex_digit;
-use nom::bytes::complete::escaped;
-use nom::combinator::not;
-use nom::combinator::consumed;
-use quote::TokenStreamExt;
-use quote::ToTokens;
+use nom::combinator::{all_consuming, cond, map_res, map_opt};
+use nom::character::complete::{char, anychar, one_of, digit1, hex_digit1, oct_digit1};
+use nom::character::{is_hex_digit, is_oct_digit};
+use nom::bytes::complete::{is_a, tag, tag_no_case, take_while, take_while_m_n};
+use quote::{ToTokens, TokenStreamExt};
 
 use super::*;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Lit {
   Char(LitChar),
   String(LitString),
@@ -126,7 +114,7 @@ impl ToTokens for LitChar {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LitString {
-  repr: String,
+  pub(crate) repr: String,
 }
 
 impl LitString {
@@ -155,17 +143,13 @@ impl ToTokens for LitString {
   }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LitFloat {
   repr: String
 }
 
 impl LitFloat {
   fn from_str(input: &str) -> IResult<&str, (String, Option<&str>)> {
-    use nom::character::complete::{char, digit1, hex_digit1, oct_digit1};
-    use nom::bytes::complete::{tag, tag_no_case};
-    use nom::multi::many1;
-
     let float = alt((
       map(
         pair(digit1, tag_no_case("f")),
@@ -197,7 +181,7 @@ impl LitFloat {
       );
 
       let (tokens, size2) = suffix(tokens)?;
-      let size = size1.or_else(|| size2);
+      let _size = size1.or_else(|| size2);
 
       // TODO: Handle suffix.
       return Ok((tokens, Self { repr }))
@@ -222,17 +206,18 @@ impl ToTokens for LitFloat {
 /// #define MY_INT2 1u ## LL
 /// #define MY_INT3 1 ## ULL
 /// ```
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LitInt {
   repr: String,
 }
 
 impl LitInt {
-  fn from_str(input: &str) -> IResult<&str, (String, Option<&str>, Option<&str>)> {
-    use nom::character::complete::{char, digit1, hex_digit1, oct_digit1};
-    use nom::bytes::complete::{tag, tag_no_case, is_a};
-    use nom::multi::many1;
+  pub fn new(s: &str) -> Self {
+    let (_, (repr, _, _)) = Self::from_str(s).unwrap();
+    Self { repr }
+  }
 
+  fn from_str(input: &str) -> IResult<&str, (String, Option<&str>, Option<&str>)> {
     let digits = alt((
       map(preceded(tag_no_case("0x"), hex_digit1), |n| format!("0x{}", n)),
       map(preceded(tag_no_case("0b"), is_a("01")), |n| format!("0b{}", n)),
@@ -282,8 +267,8 @@ impl LitInt {
       );
 
       let (tokens, (unsigned2, size2)) = suffix(tokens)?;
-      let unsigned = unsigned1.is_some() || unsigned2.is_some();
-      let size = size1.or_else(|| size2);
+      let _unsigned = unsigned1.is_some() || unsigned2.is_some();
+      let _size = size1.or_else(|| size2);
 
       // TODO: Handle suffix.
       return Ok((tokens, Self { repr }))

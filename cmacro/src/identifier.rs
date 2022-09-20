@@ -1,19 +1,8 @@
 use quote::TokenStreamExt;
-use quote::ToTokens;
 
 use super::*;
 
-pub struct LitIdentifier {
-  id: String,
-}
-
-impl LitIdentifier {
-  pub fn parse<'i, 't>(tokens: &'i [&'t str]) -> IResult<&'i [&'t str], Self> {
-    map(identifier, |id| Self { id: id.to_owned() })(tokens)
-  }
-}
-
-pub fn identifier<'i, 't>(tokens: &'i [&'t str]) -> IResult<&'i [&'t str], &'t str> {
+pub(crate) fn identifier<'i, 't>(tokens: &'i [&'t str]) -> IResult<&'i [&'t str], &'t str> {
   if let Some(token) = tokens.get(0) {
     let mut it = token.chars();
     if let Some('a'..='z' | 'A'..='Z' | '_') = it.next() {
@@ -37,7 +26,14 @@ fn concat_identifier<'i, 't>(tokens: &'i [&'t str]) -> IResult<&'i [&'t str], &'
   Err(nom::Err::Error(nom::error::Error::new(tokens, nom::error::ErrorKind::Fail)))
 }
 
-#[derive(Debug, Clone)]
+/// An identifier.
+///
+/// ```c
+/// #define ID asdf
+/// #define ID abc ## def
+/// #define ID abc ## 123
+/// ```
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Identifier {
   Literal(String),
   Concat(Vec<String>)
@@ -77,31 +73,53 @@ impl Identifier {
   }
 
   pub fn to_tokens(&self, ctx: &mut Context, tokens: &mut TokenStream) {
-    match self {
-      Self::Literal(s) => {
-        let mut id = Ident::new(s, Span::call_site());
-
-        if ctx.is_macro_arg(s.as_str()) {
-          return tokens.append_all(quote! { $#id })
-        }
-
-        tokens.append(id)
-      },
-      Self::Concat(ids) => {
-        let ids = ids.iter().map(|id| Self::Literal(id.to_owned()).to_token_stream(ctx)).collect::<Vec<_>>();
-
-        tokens.append_all(quote! {
-          ::core::concat_idents!(
-            #(#ids),*
-          )
-        })
-      },
-    }
+    tokens.append_all(self.to_token_stream(ctx))
   }
 
   pub fn to_token_stream(&self, ctx: &mut Context) -> TokenStream {
-    let mut tokens = TokenStream::new();
-    self.to_tokens(ctx, &mut tokens);
-    tokens
+    match self {
+      Self::Literal(ref s) => {
+        let id = Ident::new(s, Span::call_site());
+
+        if ctx.is_macro_arg(s) {
+          quote! { $#id }
+        } else {
+          quote! { #id }
+        }
+      },
+      Self::Concat(ids) => {
+        let ids = ids.iter().map(|id| Self::Literal(id.to_owned()).to_token_stream(ctx));
+        quote! { ::core::concat_idents!(#(#ids),*) }
+      },
+    }
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  #[test]
+  fn parse_literal() {
+    let (_, id) = Identifier::parse(&["asdf"]).unwrap();
+    assert_eq!(id, Identifier::Literal("asdf".into()));
+  }
+
+  #[test]
+  fn parse_concat() {
+    let (_, id) = Identifier::parse(&["abc", "##", "def"]).unwrap();
+    assert_eq!(id, Identifier::Concat(vec!["abc".into(), "def".into()]));
+
+    let (_, id) = Identifier::parse(&["abc", "##", "123"]).unwrap();
+    assert_eq!(id, Identifier::Concat(vec!["abc".into(), "123".into()]));
+  }
+
+  #[test]
+  fn parse_wrong() {
+    let res = Identifier::parse(&["123def"]);
+    assert!(res.is_err());
+
+    let res = Identifier::parse(&["123", "##", "def"]);
+    assert!(res.is_err());
   }
 }

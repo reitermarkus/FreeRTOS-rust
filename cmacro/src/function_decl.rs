@@ -1,19 +1,18 @@
 use quote::TokenStreamExt;
-use quote::ToTokens;
 
 use super::*;
 
+/// A function declaration.
 #[derive(Debug)]
 pub struct FunctionDecl {
   ret_ty: Type,
   name: Identifier,
   args: Vec<(Type, Identifier)>,
-  is_static: bool,
 }
 
 impl FunctionDecl {
   pub fn parse<'i, 't>(tokens: &'i [&'t str]) -> IResult<&'i [&'t str], Self> {
-    let (tokens, ((static_storage, ret_ty), name, args)) = tuple((
+    let (tokens, ((_, ret_ty), name, args)) = tuple((
       permutation((opt(token("static")), Type::parse)),
       Identifier::parse,
       delimited(
@@ -23,7 +22,7 @@ impl FunctionDecl {
       ),
     ))(tokens)?;
 
-    Ok((tokens, Self { ret_ty, name, args, is_static: static_storage.is_some() }))
+    Ok((tokens, Self { ret_ty, name, args }))
   }
 
   pub fn visit<'s, 'v>(&mut self, ctx: &mut Context<'s, 'v>) {

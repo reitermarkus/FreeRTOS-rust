@@ -1,9 +1,9 @@
 use quote::TokenStreamExt;
-use quote::ToTokens;
 
 use super::*;
 
-#[derive(Debug, Clone)]
+/// A function call.
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FunctionCall<'t> {
   pub name: Identifier,
   pub args: Vec<Expr<'t>>,

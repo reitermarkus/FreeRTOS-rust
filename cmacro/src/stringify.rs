@@ -1,5 +1,4 @@
 use quote::TokenStreamExt;
-use quote::ToTokens;
 
 use super::*;
 
@@ -8,9 +7,9 @@ use super::*;
 /// ```c
 /// #define STRINGIFY(x) #x
 /// ```
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Stringify {
-  id: Identifier,
+  pub(crate) id: Identifier,
 }
 
 impl Stringify {
@@ -22,7 +21,13 @@ impl Stringify {
   }
 
   pub fn visit<'s, 't>(&mut self, ctx: &mut Context<'s, 't>) {
-    ctx.export_as_macro = true;
+    if let Identifier::Literal(ref id) = self.id {
+      if ctx.is_macro_arg(id) {
+        ctx.export_as_macro = true;
+      }
+    } else {
+      unreachable!()
+    }
   }
 
   pub fn to_tokens(&self, ctx: &mut Context, tokens: &mut TokenStream) {
@@ -32,8 +37,6 @@ impl Stringify {
   pub fn to_token_stream(&self, ctx: &mut Context) -> TokenStream {
     let id = self.id.to_token_stream(ctx);
 
-    quote! {
-      ::core::stringify!(#id)
-    }
+    quote! { ::core::stringify!(#id) }
   }
 }

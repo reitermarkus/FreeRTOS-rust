@@ -1,9 +1,9 @@
 use quote::TokenStreamExt;
-use quote::ToTokens;
 
 use super::*;
 
-#[derive(Debug)]
+/// A variable declaration.
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Decl<'t> {
   ty: Type,
   name: Identifier,
@@ -43,5 +43,24 @@ impl<'t> Decl<'t> {
     let mut tokens = TokenStream::new();
     self.to_tokens(ctx, &mut tokens);
     tokens
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  #[test]
+  fn parse() {
+    let (_, id) = Decl::parse(&["int", "*", "abc", "=", "123"]).unwrap();
+    assert_eq!(id, Decl {
+      ty: Type::Ptr {
+        ty: Box::new(Type::Identifier { name: Identifier::Literal("int".into()), is_struct: false }),
+        mutable: true,
+      },
+      name: Identifier::Literal("abc".into()),
+      rhs: Expr::Literal(Lit::Int(LitInt::new("123"))),
+      is_static: false,
+    });
   }
 }

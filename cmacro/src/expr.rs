@@ -1,9 +1,9 @@
 use quote::TokenStreamExt;
-use quote::ToTokens;
 
 use super::*;
 
-#[derive(Debug, Clone)]
+/// An expression.
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Expr<'t> {
   Variable { name: Identifier },
   FunctionCall(FunctionCall<'t>),
@@ -19,7 +19,7 @@ pub enum Expr<'t> {
 }
 
 impl<'t> Expr<'t> {
-  fn parse_string<'i>(tokens: &'i [&'t str]) -> IResult<&'i [&'t str], Self> {
+  fn parse_concat<'i>(tokens: &'i [&'t str]) -> IResult<&'i [&'t str], Self> {
     let mut parse_string = alt((
       map(LitString::parse, |s| Self::Literal(Lit::String(s))),
       map(Stringify::parse, Self::Stringify),
@@ -44,6 +44,7 @@ impl<'t> Expr<'t> {
 
   fn parse_factor<'i>(tokens: &'i [&'t str]) -> IResult<&'i [&'t str], Self> {
     alt((
+      Self::parse_concat,
       map(Lit::parse, Self::Literal),
       map(Identifier::parse, |id| Self::Variable { name: id }),
       delimited(pair(token("("), meta), Self::parse, pair(meta, token(")"))),
@@ -230,7 +231,7 @@ impl<'t> Expr<'t> {
           token("<<="), token(">>="),
           token("&="), token("^="), token("|="),
         )),
-        Self::parse_term_prec13,
+        Self::parse_term_prec14,
       ),
       move || term.clone(),
       |lhs, (op, rhs)| {
@@ -251,7 +252,7 @@ impl<'t> Expr<'t> {
       },
       Self::Variable { name } => name.visit(ctx),
       Self::FunctionCall(call) => call.visit(ctx),
-      Self::Literal(lit) => (),
+      Self::Literal(_) => (),
       Self::FieldAccess { expr, field } => {
         expr.visit(ctx);
         field.visit(ctx);
@@ -262,10 +263,10 @@ impl<'t> Expr<'t> {
           name.visit(ctx);
         }
       },
-      Self::UnaryOp { op, expr, prefix } => {
+      Self::UnaryOp { expr, .. } => {
         expr.visit(ctx);
       },
-      Self::BinOp(lhs, op, rhs) => {
+      Self::BinOp(lhs, _, rhs) => {
         lhs.visit(ctx);
         rhs.visit(ctx);
       },
@@ -391,5 +392,68 @@ impl<'t> Expr<'t> {
     let mut tokens = TokenStream::new();
     self.to_tokens(ctx, &mut tokens);
     tokens
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  macro_rules! id {
+    ($name:ident) => { Identifier::Literal(String::from(stringify!($name))) }
+  }
+
+  macro_rules! var {
+    ($name:ident) => { Expr::Variable { name: id!($name) } };
+  }
+
+  #[test]
+  fn parse_stringify() {
+    let (_, expr) = Expr::parse(&["#", "a"]).unwrap();
+    assert_eq!(expr, Expr::Stringify(Stringify { id: id!(a) }));
+  }
+
+  #[test]
+  fn parse_concat() {
+    let (_, expr) = Expr::parse(&[r#""abc""#, r#""def""#]).unwrap();
+    assert_eq!(expr, Expr::Concat(vec![
+      Expr::Literal(Lit::String(LitString { repr: "abc".into() })),
+      Expr::Literal(Lit::String(LitString { repr: "def".into() })),
+    ]));
+
+    let (_, expr) = Expr::parse(&[r#""def""#, "#", "a"]).unwrap();
+    assert_eq!(expr, Expr::Concat(vec![
+      Expr::Literal(Lit::String(LitString { repr: "def".into() })),
+      Expr::Stringify(Stringify { id: id!(a) }),
+    ]));
+  }
+
+  #[test]
+  fn parse_access() {
+    let (_, expr) = Expr::parse(&["a", ".", "b"]).unwrap();
+    assert_eq!(expr, Expr::FieldAccess { expr: Box::new(var!(a)), field: id!(b) });
+  }
+
+  #[test]
+  fn parse_ptr_access() {
+    let (_, expr) = Expr::parse(&["a", "->", "b"]).unwrap();
+    assert_eq!(expr, Expr::FieldAccess {
+      expr: Box::new(Expr::UnaryOp { op: "*", expr: Box::new(var!(a)), prefix: true }),
+      field: id!(b),
+    });
+  }
+
+  #[test]
+  fn parse_assignment() {
+    let (_, expr) = Expr::parse(&["a", "=", "b", "=", "c"]).unwrap();
+    assert_eq!(expr, Expr::BinOp(
+      Box::new(var!(a)),
+      "=",
+      Box::new(Expr::BinOp(
+        Box::new(var!(b)),
+        "=",
+        Box::new(var!(c)),
+      ))
+    ));
   }
 }

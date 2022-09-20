@@ -1,9 +1,9 @@
 use quote::TokenStreamExt;
-use quote::ToTokens;
 
 use super::*;
 
-#[derive(Debug, Clone)]
+/// A type.
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Type {
   Identifier { name: Identifier, is_struct: bool },
   Ptr { ty: Box<Self>, mutable: bool },
@@ -27,7 +27,7 @@ impl Type {
   pub fn visit<'s, 'v>(&mut self, ctx: &mut Context<'s, 'v>) {
     match self {
       Self::Identifier { name, .. } => name.visit(ctx),
-      Self::Ptr { ty, mutable } => ty.visit(ctx),
+      Self::Ptr { ty, .. } => ty.visit(ctx),
     }
   }
 

@@ -1,8 +1,8 @@
 use quote::TokenStreamExt;
-use quote::ToTokens;
 
 use super::*;
 
+/// A statement.
 #[derive(Debug)]
 pub enum Statement<'t> {
   Expr(Expr<'t>),
@@ -19,13 +19,12 @@ pub enum Statement<'t> {
 
 impl<'t> Statement<'t> {
   pub fn parse<'i>(tokens: &'i [&'t str]) -> IResult<&'i [&'t str], Self> {
-    let mut condition = || delimited(pair(token("("), meta), Expr::parse, pair(meta, token(")")));
-    let mut this = || Self::parse;
-    let mut block = || map(this(), |stmt| if let Self::Block(stmts) = stmt { stmts } else { vec![stmt] } );
+    let condition = || delimited(pair(token("("), meta), Expr::parse, pair(meta, token(")")));
+    let block = || map(Self::parse, |stmt| if let Self::Block(stmts) = stmt { stmts } else { vec![stmt] } );
 
     alt((
       map(
-        delimited(token("{"), many0(preceded(meta, this())), pair(meta, token("}"))),
+        delimited(token("{"), many0(preceded(meta, Self::parse)), pair(meta, token("}"))),
         |statements| Self::Block(statements),
       ),
       map(
