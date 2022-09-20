@@ -2,7 +2,9 @@
 members = [
     "freertos-rust",
     "freertos-rust-examples",
-    "cmacro",
+]
+exclude = [
+  "cmacro-rs",
 ]
 
 [profile.release]
@@ -13,3 +15,4 @@ lto = true # better optimizations
 [patch.crates-io]
 bindgen = { git = "https://github.com/reitermarkus/rust-bindgen", branch = "cast-expr" }
 cexpr = { git = "https://github.com/reitermarkus/rust-cexpr", branch = "cast-expr" }
+cmacro = { path = "./cmacro-rs" }
