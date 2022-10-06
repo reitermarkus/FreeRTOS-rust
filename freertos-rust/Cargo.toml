@@ -40,4 +40,3 @@ bindgen = "0.60.1"
 walkdir = "2"
 cc = "1"
 syn = "1"
-cmacro = { git = "https://github.com/reitermarkus/cmacro-rs" }
