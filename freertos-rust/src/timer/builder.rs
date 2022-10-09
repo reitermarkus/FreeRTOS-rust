@@ -30,7 +30,10 @@ impl<'n> TimerBuilder<'n> {
   }
 
   /// Set the period of the timer.
-  pub const fn period(mut self, period: impl Into<Ticks>) -> Self {
+  pub const fn period<T>(mut self, period: T) -> Self
+  where
+    T: ~const Into<Ticks>
+  {
     self.period = period.into();
     self
   }
