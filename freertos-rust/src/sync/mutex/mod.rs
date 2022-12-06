@@ -9,6 +9,7 @@ use crate::alloc::Dynamic;
 use crate::alloc::Static;
 use crate::lazy_init::{LazyInit, LazyPtr};
 use crate::shim::*;
+use crate::InterruptContext;
 
 mod handle;
 pub use handle::{MutexHandle, RecursiveMutexHandle};
@@ -241,6 +242,15 @@ impl_mutex!(
   xSemaphoreCreateMutexStatic,
   "",
 );
+
+impl<T: ?Sized> MutexGuard<'_, T> {
+  /// Unlocks the mutex from within an interrupt service routine.
+  #[inline]
+  pub fn unlock_from_isr(self, ic: &mut InterruptContext) {
+    let _ = self.handle.give_from_isr(ic);
+  }
+}
+
 unsafe impl<T: ?Sized> Send for MutexGuard<'_, T> {}
 
 impl_mutex!(

@@ -1,11 +1,14 @@
 use core::fmt;
 use core::cell::UnsafeCell;
 
-use crate::shim::portMAX_DELAY;
-use crate::FreeRtosError;
-use crate::sync::SemaphoreHandle;
-use crate::ffi::SemaphoreHandle_t;
-use crate::Ticks;
+use crate::{
+  shim::portMAX_DELAY,
+  FreeRtosError,
+  sync::SemaphoreHandle,
+  ffi::SemaphoreHandle_t,
+  Ticks,
+  InterruptContext,
+};
 
 use super::{
   MutexGuard,
@@ -13,7 +16,15 @@ use super::{
 };
 
 macro_rules! impl_mutex_handle {
-  ($mutex:ident, $handle:ident, $guard:ident, $take:ident, $give:ident $(,)?) => {
+  (
+    $mutex:ident,
+    $handle:ident,
+    $guard:ident,
+    $take:ident,
+    $(($take_from_isr:ident),)?
+    $give:ident $(,)?
+    $(($give_from_isr:ident),)?
+  ) => {
     /// A handle for managing a mutex.
     ///
     #[doc = concat!("See [`", stringify!($mutex), "`](crate::sync::", stringify!($mutex), ") for the preferred owned version.")]
@@ -90,6 +101,23 @@ macro_rules! impl_mutex_handle {
         self.handle().$give()
       }
 
+      $(
+        /// Unlock the mutex from within an interrupt service routine.
+        #[inline]
+        pub(super) fn give_from_isr(&self, ic: &mut InterruptContext) -> Result<(), FreeRtosError> {
+          self.handle().$give_from_isr(ic)
+        }
+      )*
+
+      $(
+        /// Lock the mutex from within an interrupt service routine.
+        #[inline]
+        pub fn lock_from_isr(&self, ic: &mut InterruptContext) -> Result<$guard<'_, T>, FreeRtosError> {
+          self.handle().$take_from_isr(ic)?;
+          Ok($guard { handle: self })
+        }
+      )*
+
       /// Lock the mutex.
       #[inline]
       pub fn lock(&self) -> Result<$guard<'_, T>, FreeRtosError> {
@@ -111,13 +139,14 @@ macro_rules! impl_mutex_handle {
   };
 }
 
-
 impl_mutex_handle!(
   Mutex,
   MutexHandle,
   MutexGuard,
   take,
+  (take_from_isr),
   give,
+  (give_from_isr),
 );
 impl_mutex_handle!(
   RecursiveMutex,
