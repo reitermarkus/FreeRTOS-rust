@@ -241,6 +241,7 @@ impl_mutex!(
   xSemaphoreCreateMutexStatic,
   "",
 );
+unsafe impl<T: ?Sized> Send for MutexGuard<'_, T> {}
 
 impl_mutex!(
   /// A mutual exclusion primitive useful for protecting shared data which can be locked recursively.
