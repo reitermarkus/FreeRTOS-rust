@@ -16,6 +16,9 @@ pub struct InterruptContext {
   x_higher_priority_task_woken: BaseType_t,
 }
 
+impl !Send for InterruptContext {}
+impl !Sync for InterruptContext {}
+
 impl InterruptContext {
   /// Instantiate a new context.
   ///

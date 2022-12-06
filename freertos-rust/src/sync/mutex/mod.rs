@@ -243,15 +243,48 @@ impl_mutex!(
   "",
 );
 
-impl<T: ?Sized> MutexGuard<'_, T> {
-  /// Unlocks the mutex from within an interrupt service routine.
+/// An RAII implementation of a “scoped lock” of a mutex.
+///
+///  When this structure is
+/// dropped (falls out of scope), the lock will be unlocked.
+///
+/// The data protected by the mutex can be accessed through this guard via its [`Deref`]
+/// and [`DerefMut`] implementations.
+///
+#[must_use = "if unused the `Mutex` will unlock immediately"]
+// #[must_not_suspend = "holding a `Mutex` across suspend points can cause deadlocks, delays, \
+//                       and cause Futures to not implement `Send`"]
+#[clippy::has_significant_drop]
+pub struct IsrMutexGuard<'ic, 'm, T: ?Sized> {
+  ic: &'ic mut InterruptContext,
+  handle: &'m MutexHandle<T>,
+}
+
+impl<T: ?Sized> Deref for IsrMutexGuard<'_, '_, T> {
+  type Target = T;
+
+  /// Dereferences the locked value.
   #[inline]
-  pub fn unlock_from_isr(self, ic: &mut InterruptContext) {
-    let _ = self.handle.give_from_isr(ic);
+  fn deref(&self) -> &T {
+    // SAFETY: Mutex is locked.
+    unsafe { self.handle.data() }
   }
 }
 
-unsafe impl<T: ?Sized> Send for MutexGuard<'_, T> {}
+impl<T: ?Sized> DerefMut for IsrMutexGuard<'_, '_, T> {
+  /// Dereferences the locked value.
+  #[inline]
+  fn deref_mut(&mut self) -> &mut T {
+    // SAFETY: Mutex is locked.
+    unsafe { self.handle.data_mut() }
+  }
+}
+
+impl<T: ?Sized> Drop for IsrMutexGuard<'_, '_, T> {
+  fn drop(&mut self) {
+      let _ = self.handle.give_from_isr(self.ic);
+  }
+}
 
 impl_mutex!(
   /// A mutual exclusion primitive useful for protecting shared data which can be locked recursively.

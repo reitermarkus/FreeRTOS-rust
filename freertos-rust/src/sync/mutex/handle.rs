@@ -12,6 +12,7 @@ use crate::{
 
 use super::{
   MutexGuard,
+  IsrMutexGuard,
   RecursiveMutexGuard,
 };
 
@@ -112,9 +113,9 @@ macro_rules! impl_mutex_handle {
       $(
         /// Lock the mutex from within an interrupt service routine.
         #[inline]
-        pub fn lock_from_isr(&self, ic: &mut InterruptContext) -> Result<$guard<'_, T>, FreeRtosError> {
+        pub fn lock_from_isr<'ic>(&self, ic: &'ic mut InterruptContext) -> Result<IsrMutexGuard<'ic, '_, T>, FreeRtosError> {
           self.handle().$take_from_isr(ic)?;
-          Ok($guard { handle: self })
+          Ok(IsrMutexGuard { ic, handle: self })
         }
       )*
 
