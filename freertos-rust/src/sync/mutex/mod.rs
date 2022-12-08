@@ -1,7 +1,7 @@
 use core::cell::UnsafeCell;
-use core::fmt;
+use core::{fmt, ptr};
 use core::marker::PhantomData;
-use core::mem::MaybeUninit;
+use core::mem::{MaybeUninit, ManuallyDrop};
 use core::ops::{Deref, DerefMut};
 
 use crate::alloc::Dynamic;
@@ -242,6 +242,23 @@ impl_mutex!(
   xSemaphoreCreateMutexStatic,
   "",
 );
+
+unsafe impl<'m, T: ?Sized> Send for MutexGuard<'m, T> {}
+
+impl<'m, T: ?Sized> MutexGuard<'m, T> {
+  /// Converts this `MutexGuard` into a `IsrMutexGuard`.
+  pub fn into_isr<'ic>(self, ic: &'ic mut InterruptContext) -> IsrMutexGuard<'ic, 'm, T> {
+    let this = ManuallyDrop::new(self);
+    IsrMutexGuard { ic, handle: this.handle }
+  }
+}
+
+impl<'ic, 'm, T: ?Sized> From<IsrMutexGuard<'ic, 'm, T>> for MutexGuard<'m, T> {
+  fn from(guard: IsrMutexGuard<'ic, 'm, T>) -> Self {
+    let guard = ManuallyDrop::new(guard);
+    MutexGuard { handle: guard.handle }
+  }
+}
 
 /// An RAII implementation of a “scoped lock” of a mutex.
 ///
