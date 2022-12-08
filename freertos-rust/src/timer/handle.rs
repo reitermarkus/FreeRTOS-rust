@@ -73,7 +73,7 @@ impl TimerHandle {
 
   /// Start the timer from an interrupt service routine.
   #[inline]
-  pub fn start_from_isr(&self, ic: &mut InterruptContext) -> Result<(), FreeRtosError> {
+  pub fn start_from_isr(&self, ic: &InterruptContext) -> Result<(), FreeRtosError> {
     match unsafe { xTimerStartFromISR(self.as_ptr(), ic.as_ptr()) } {
       pdPASS => Ok(()),
       _ => Err(FreeRtosError::Timeout),
@@ -91,7 +91,7 @@ impl TimerHandle {
 
   /// Stop the timer from an interrupt service routine.
   #[inline]
-  pub fn stop_from_isr(&self, ic: &mut InterruptContext) -> Result<(), FreeRtosError> {
+  pub fn stop_from_isr(&self, ic: &InterruptContext) -> Result<(), FreeRtosError> {
     match unsafe { xTimerStopFromISR(self.as_ptr(), ic.as_ptr()) } {
       pdPASS => Ok(()),
       _ => Err(FreeRtosError::Timeout),
@@ -129,7 +129,7 @@ impl TimerHandle {
   pub fn change_period_from_isr(
     &self,
     new_period: impl Into<Ticks>,
-    id: &mut InterruptContext,
+    id: &InterruptContext,
   ) -> Result<(), FreeRtosError> {
     match unsafe {
       xTimerChangePeriodFromISR(

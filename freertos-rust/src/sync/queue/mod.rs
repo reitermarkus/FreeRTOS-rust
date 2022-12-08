@@ -187,7 +187,7 @@ where
 
   /// Send an item to the end of the queue, from an interrupt.
   #[inline]
-  pub fn send_from_isr(&self, ic: &mut InterruptContext, item: T) -> Result<(), FreeRtosError> {
+  pub fn send_from_isr(&self, ic: &InterruptContext, item: T) -> Result<(), FreeRtosError> {
     self.queue.send_from_isr(ic, item)
   }
 }

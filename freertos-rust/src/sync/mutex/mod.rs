@@ -247,7 +247,7 @@ unsafe impl<'m, T: ?Sized> Send for MutexGuard<'m, T> {}
 
 impl<'m, T: ?Sized> MutexGuard<'m, T> {
   /// Converts this `MutexGuard` into a `IsrMutexGuard`.
-  pub fn into_isr<'ic>(self, ic: &'ic mut InterruptContext) -> IsrMutexGuard<'ic, 'm, T> {
+  pub fn into_isr<'ic>(self, ic: &'ic InterruptContext) -> IsrMutexGuard<'ic, 'm, T> {
     let this = ManuallyDrop::new(self);
     IsrMutexGuard { ic, handle: this.handle }
   }
@@ -273,7 +273,7 @@ impl<'ic, 'm, T: ?Sized> From<IsrMutexGuard<'ic, 'm, T>> for MutexGuard<'m, T> {
 //                       and cause Futures to not implement `Send`"]
 #[clippy::has_significant_drop]
 pub struct IsrMutexGuard<'ic, 'm, T: ?Sized> {
-  ic: &'ic mut InterruptContext,
+  ic: &'ic InterruptContext,
   handle: &'m MutexHandle<T>,
 }
 

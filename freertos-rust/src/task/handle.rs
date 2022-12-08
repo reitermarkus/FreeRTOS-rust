@@ -127,7 +127,7 @@ impl TaskHandle {
   pub fn notify_from_isr(
     &self,
     notification: TaskNotification,
-    ic: &mut InterruptContext,
+    ic: &InterruptContext,
   ) -> Result<(), FreeRtosError> {
     let (value, action) = notification.to_freertos();
 
@@ -158,7 +158,7 @@ impl TaskHandle {
     &self,
     index: usize,
     notification: TaskNotification,
-    ic: &mut InterruptContext,
+    ic: &InterruptContext,
   ) -> Result<(), FreeRtosError> {
     assert!(index < configTASK_NOTIFICATION_ARRAY_ENTRIES as _);
 

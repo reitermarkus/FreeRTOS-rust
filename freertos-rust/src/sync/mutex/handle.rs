@@ -105,7 +105,7 @@ macro_rules! impl_mutex_handle {
       $(
         /// Unlock the mutex from within an interrupt service routine.
         #[inline]
-        pub(super) fn give_from_isr(&self, ic: &mut InterruptContext) -> Result<(), FreeRtosError> {
+        pub(super) fn give_from_isr(&self, ic: &InterruptContext) -> Result<(), FreeRtosError> {
           self.handle().$give_from_isr(ic)
         }
       )*
@@ -113,7 +113,7 @@ macro_rules! impl_mutex_handle {
       $(
         /// Lock the mutex from within an interrupt service routine.
         #[inline]
-        pub fn lock_from_isr<'ic>(&self, ic: &'ic mut InterruptContext) -> Result<IsrMutexGuard<'ic, '_, T>, FreeRtosError> {
+        pub fn lock_from_isr<'ic>(&self, ic: &'ic InterruptContext) -> Result<IsrMutexGuard<'ic, '_, T>, FreeRtosError> {
           self.handle().$take_from_isr(ic)?;
           Ok(IsrMutexGuard { ic, handle: self })
         }

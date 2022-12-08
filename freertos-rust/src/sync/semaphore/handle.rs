@@ -75,7 +75,7 @@ impl SemaphoreHandle {
 
   /// Increment the semaphore or unlock the mutex from within an interrupt service routine.
   #[inline]
-  pub fn give_from_isr(&self, ic: &mut InterruptContext) -> Result<(), FreeRtosError> {
+  pub fn give_from_isr(&self, ic: &InterruptContext) -> Result<(), FreeRtosError> {
     match unsafe { xSemaphoreGiveFromISR(self.as_ptr(), ic.as_ptr()) } {
       pdTRUE => Ok(()),
       errQUEUE_FULL => Err(FreeRtosError::QueueFull),
@@ -105,7 +105,7 @@ impl SemaphoreHandle {
 
   /// Decrement the semaphore or lock the mutex from within an interrupt service routine.
   #[inline]
-  pub fn take_from_isr(&self, ic: &mut InterruptContext) -> Result<(), FreeRtosError> {
+  pub fn take_from_isr(&self, ic: &InterruptContext) -> Result<(), FreeRtosError> {
     match unsafe { xSemaphoreTakeFromISR(self.as_ptr(), ic.as_ptr()) } {
       pdTRUE => Ok(()),
       pdFALSE => Err(FreeRtosError::Unavailable),

@@ -75,7 +75,7 @@ impl<T> QueueHandle<T> {
   #[inline]
   pub fn send_from_isr(
       &self,
-      ic: &mut InterruptContext,
+      ic: &InterruptContext,
       item: T,
   ) -> Result<(), FreeRtosError> {
     let res = unsafe {
