@@ -36,7 +36,7 @@ impl ParseCallbacks for Callbacks {
     }
   }
 
-  fn func_macro_arg_type(&self, name: &str, arg: &str) -> Option<String> {
+  fn fn_macro_arg_type(&self, name: &str, arg: &str) -> Option<String> {
     dbg!((name, arg));
 
     let ty = match arg {
