@@ -1,5 +1,5 @@
 use core::cell::UnsafeCell;
-use core::{fmt, ptr};
+use core::fmt;
 use core::marker::PhantomData;
 use core::mem::{MaybeUninit, ManuallyDrop};
 use core::ops::{Deref, DerefMut};
