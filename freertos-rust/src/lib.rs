@@ -26,8 +26,6 @@
 #![feature(const_pin)]
 #![feature(associated_type_defaults)]
 #![feature(const_mut_refs)]
-#![feature(const_convert)]
-#![feature(const_result_drop)]
 #![feature(negative_impls)]
 #![warn(missing_docs)]
 

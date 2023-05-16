@@ -18,7 +18,7 @@ use crate::ffi::TickType_t;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 #[repr(transparent)]
 pub struct Ticks {
-  ticks: TickType_t,
+  pub(crate) ticks: TickType_t,
 }
 
 impl Ticks {
@@ -26,21 +26,27 @@ impl Ticks {
   pub const fn new(ticks: TickType_t) -> Self {
     Self { ticks }
   }
+
+  /// Create `Ticks` from milliseconds.
+  pub const fn from_millis(ms: u32) -> Self {
+    let ticks = ms / portTICK_PERIOD_MS as u32;
+    Self { ticks }
+  }
 }
 
-impl const From<Ticks> for TickType_t {
+impl From<Ticks> for TickType_t {
   fn from(ticks: Ticks) -> Self {
     ticks.ticks
   }
 }
 
-impl const From<TickType_t> for Ticks {
+impl From<TickType_t> for Ticks {
   fn from(ticks: TickType_t) -> Self {
     Self::new(ticks)
   }
 }
 
-impl const From<Duration> for Ticks {
+impl From<Duration> for Ticks {
   /// Convert a `Duration` to `Ticks`.
   fn from(duration: Duration) -> Self {
     let ticks = duration.as_millis() / portTICK_PERIOD_MS as u128;

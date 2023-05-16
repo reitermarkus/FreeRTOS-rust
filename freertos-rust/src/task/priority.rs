@@ -43,7 +43,7 @@ impl fmt::Display for TaskPriority {
 #[non_exhaustive]
 pub struct PriorityOverflow;
 
-impl const TryFrom<u8> for TaskPriority {
+impl TryFrom<u8> for TaskPriority {
   type Error = PriorityOverflow;
 
   fn try_from(priority: u8) -> Result<Self, Self::Error> {

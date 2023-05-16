@@ -30,11 +30,8 @@ impl<'n> TimerBuilder<'n> {
   }
 
   /// Set the period of the timer.
-  pub const fn period<T>(mut self, period: T) -> Self
-  where
-    T: ~const Into<Ticks>
-  {
-    self.period = period.into();
+  pub const fn period(mut self, period: Ticks) -> Self {
+    self.period = period;
     self
   }
 
@@ -98,7 +95,7 @@ impl TimerBuilder<'static> {
   pub const unsafe fn create_static(self, callback: fn(timer: &TimerHandle)) -> Timer<'static, Static> {
     let meta = TimerMeta {
       name: self.name,
-      period: self.period.into(),
+      period: self.period,
       auto_reload: self.auto_reload,
       callback,
     };

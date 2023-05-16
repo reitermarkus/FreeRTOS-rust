@@ -98,7 +98,7 @@ where
 #[doc(hidden)]
 pub struct TimerMeta<'f, F> {
   name: Option<&'f CStr>,
-  period: TickType_t,
+  period: Ticks,
   auto_reload: bool,
   callback: F,
 }
@@ -127,7 +127,7 @@ impl<'f> LazyInit for Timer<'f, Dynamic> {
     let ptr = unsafe {
       xTimerCreate(
         name.as_deref().map(|n| n.as_ptr()).unwrap_or(ptr::null()),
-        *period,
+        period.ticks,
         if *auto_reload { pdTRUE } else { pdFALSE } as _,
         callback_ptr.cast(),
         Some(timer_callback),
@@ -172,7 +172,7 @@ impl LazyInit for Timer<'static, Static> {
 
       xTimerCreateStatic(
         name.as_deref().map(|n| n.as_ptr()).unwrap_or(ptr::null()),
-        *period,
+        period.ticks,
         if *auto_reload { pdTRUE } else { pdFALSE } as _,
         callback_ptr,
         Some(timer_callback),
