@@ -90,6 +90,8 @@ pub fn builders(
   let mut bindgen = bindgen::builder()
     .use_core()
     .ctypes_prefix("::core::ffi")
+    .generate_cstr(true)
+    .generate_fn_macros(true)
     .parse_callbacks(Box::new(bindgen::CargoCallbacks));
 
   cc.define("RUST", None);
