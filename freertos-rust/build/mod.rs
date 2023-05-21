@@ -85,7 +85,6 @@ impl ParseCallbacks for Callbacks {
 
 // See: https://doc.rust-lang.org/cargo/reference/build-scripts.html
 fn main() {
-  println!("cargo:rerun-if-changed=build.rs");
   println!("cargo:rerun-if-changed=src/freertos/shim.c");
 
   let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap());
