@@ -7,28 +7,6 @@ mod bindings {
   #![allow(unused)]
   #![allow(missing_docs)]
 
-  struct Deref<'a, T>(&'a mut T);
-
-  impl<T: Clone> Deref<'_, T> {
-    fn convert(&mut self) -> T {
-      self.0.clone()
-    }
-  }
-
-  trait Convert {
-    type Output;
-
-    fn convert(&self) -> Self::Output;
-  }
-
-  impl<const N: usize, T: Copy> Convert for Deref<'_, [T; N]> {
-    type Output = *mut T;
-
-    fn convert(&self) -> Self::Output {
-      self.0.as_ptr().cast_mut()
-    }
-  }
-
   include!(concat!(env!("OUT_DIR"), "/shim.rs"));
 }
 

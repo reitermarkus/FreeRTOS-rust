@@ -36,12 +36,10 @@ impl ParseCallbacks for Callbacks {
     }
   }
 
-  fn fn_macro_arg_type(&self, name: &str, arg: &str) -> Option<String> {
-    dbg!((name, arg));
-
+  fn fn_macro_arg_type(&self, name: &str, arg: &str) -> Option<syn::Type> {
     let ty = match arg {
-      "pxList" => "*mut List_t",
-      "pxListItem" | "pxItem" => "*mut ListItem_t",
+      "pxList" => syn::parse_quote! { *mut List_t },
+      "pxListItem" | "pxItem" => syn::parse_quote! { *mut ListItem_t },
       // "pxHigherPriorityTaskWoken" | "pxYieldPending" => "*mut BaseType_t",
       // "pxPreviousWakeTime" => "*mut UBaseType_t",
       // "uxQueueLength" | "uxItemSize" | "uxMaxCount" | "uxInitialCount" |
@@ -50,8 +48,8 @@ impl ParseCallbacks for Callbacks {
       // "pvItemToQueue" => "*const ::core::ffi::c_void",
       // "pvParameters" | "pvBlockToFree" => "*mut ::core::ffi::c_void",
       // "pcName" => "*const ::core::ffi::c_char",
-      "xQueue" => "QueueHandle_t",
-      "xMutex" | "xSemaphore" => "SemaphoreHandle_t",
+      "xQueue" => syn::parse_quote! { QueueHandle_t },
+      "xMutex" | "xSemaphore" => syn::parse_quote! { SemaphoreHandle_t },
       // "xBlockTime" | "xTicksToWait" | "xNewPeriod" | "xExpectedIdleTime" | "xTimeIncrement" => "TickType_t",
       // "xTask" | "xTaskToNotify" => "TaskHandle_t",
       // "pxCreatedTask" => "*mut TaskHandle_t",
@@ -64,7 +62,7 @@ impl ParseCallbacks for Callbacks {
       // "pulPreviousNotificationValue" | "pulPreviousNotifyValue" | "pulNotificationValue" => "*mut u32",
       // "pvTaskToDelete" | "pvBuffer" => "*mut ::core::ffi::c_void",
       // "pucQueueStorage" => "*mut u8",
-      "pxOwner" => "*mut ::core::ffi::c_void",
+      "pxOwner" => syn::parse_quote! { *mut ::core::ffi::c_void },
       // "pxQueueBuffer" => "*mut StaticQueue_t",
       // "pxPendYield" => "*mut BaseType_t",
       // "pxSemaphoreBuffer" | "pxMutexBuffer" | "pxStaticSemaphore" => "*mut StaticSemaphore_t",
@@ -77,9 +75,7 @@ impl ParseCallbacks for Callbacks {
       _ => return None,
     };
 
-    dbg!(&ty);
-
-    Some(ty.into())
+    Some(ty)
   }
 }
 
