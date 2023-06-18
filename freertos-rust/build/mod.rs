@@ -48,6 +48,7 @@ impl ParseCallbacks for Callbacks {
       // "pvItemToQueue" => "*const ::core::ffi::c_void",
       // "pvParameters" | "pvBlockToFree" => "*mut ::core::ffi::c_void",
       // "pcName" => "*const ::core::ffi::c_char",
+      "uxPriority" | "uxTopPriority" | "uxReadyPriorities" => syn::parse_quote! { UBaseType_t },
       "xQueue" => syn::parse_quote! { QueueHandle_t },
       "xMutex" | "xSemaphore" => syn::parse_quote! { SemaphoreHandle_t },
       // "xBlockTime" | "xTicksToWait" | "xNewPeriod" | "xExpectedIdleTime" | "xTimeIncrement" => "TickType_t",
@@ -72,6 +73,7 @@ impl ParseCallbacks for Callbacks {
       // "x" if name.ends_with("YIELD_FROM_ISR") => "BaseType_t",
       // "x" if name == "xTaskCreateRestricted" => "*mut TaskParameters_t",
       // "xClearCountOnExit" | "xSwitchRequired" => "BaseType_t",
+      "xValue" if name == "listSET_LIST_ITEM_VALUE" => syn::parse_quote! { TickType_t },
       _ => return None,
     };
 
@@ -117,6 +119,14 @@ fn main() {
     .header(shim_dir.join("shim.c").display().to_string())
     .generate_comments(false)
     .parse_callbacks(Box::new(Callbacks))
+    .blocklist_function("__.*")
+    .blocklist_function("U?INT(MAX|\\d+)_C")
+    .blocklist_function("task(ENTER|EXIT)_CRITICAL_FROM_ISR")
+    .blocklist_function("task(ENABLE|DISABLE)_INTERRUPTS")
+    .blocklist_function("port(SET|CLEAR)_INTERRUPT_MASK_FROM_ISR")
+    .blocklist_function("port(ENABLE|DISABLE)_INTERRUPTS")
+    // Trace macros only work if defined in C.
+    .blocklist_function("trace[A-Z_]+")
     .generate().unwrap_or_else(|err| {
       eprintln!("Failed generating bindings: {}", err);
       exit(1);
