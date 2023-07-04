@@ -55,10 +55,10 @@ mod system_state;
 pub use system_state::{SystemState, TaskStatus};
 
 /// Minimal task stack size.
-pub const MINIMAL_STACK_SIZE: u16 = configMINIMAL_STACK_SIZE;
+pub const MINIMAL_STACK_SIZE: usize = configMINIMAL_STACK_SIZE as usize;
 
 /// A task.
-pub struct Task<A = Dynamic, const STACK_SIZE: usize = 0>
+pub struct Task<A = Dynamic, const STACK_SIZE: usize = MINIMAL_STACK_SIZE>
 where
   Self: LazyInit,
 {
@@ -120,7 +120,7 @@ pub struct TaskMeta<N, S, F> {
 impl LazyInit for Task<Dynamic> {
   type Storage = ();
   type Handle = TaskHandle_t;
-  type Data = TaskMeta<TaskName<{ configMAX_TASK_NAME_LEN as usize }>, u16, Option<Box<dyn FnOnce(&mut CurrentTask)>>>;
+  type Data = TaskMeta<TaskName<{ configMAX_TASK_NAME_LEN as usize }>, usize, Option<Box<dyn FnOnce(&mut CurrentTask)>>>;
 
   fn init(data: &UnsafeCell<Self::Data>, _storage: &UnsafeCell<MaybeUninit<Self::Storage>>) -> Self::Ptr {
     let data = unsafe { &mut *data.get() };
@@ -147,7 +147,7 @@ impl LazyInit for Task<Dynamic> {
       xTaskCreate(
         Some(task_function),
         data.name.as_ptr(),
-        data.stack_size,
+        data.stack_size.try_into().unwrap_or(!0),
         function_ptr.cast(),
         data.priority.to_freertos(),
         &mut ptr,

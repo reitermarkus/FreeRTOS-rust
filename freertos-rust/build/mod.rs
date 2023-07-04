@@ -31,7 +31,7 @@ impl ParseCallbacks for Callbacks {
 
     match name {
       "configMAX_PRIORITIES" => Some(IntKind::U8),
-      "configMINIMAL_STACK_SIZE" | "configTIMER_TASK_STACK_DEPTH" => Some(IntKind::U16),
+      "configTIMER_TASK_STACK_DEPTH" => Some(IntKind::U16),
       _ => None,
     }
   }

@@ -15,7 +15,7 @@ use super::{Task, TaskPriority, TaskName, TaskMeta, MINIMAL_STACK_SIZE};
 /// Helper for creating a new task returned by [`Task::new`].
 pub struct TaskBuilder<'n> {
   name: &'n str,
-  stack_size: u16,
+  stack_size: usize,
   priority: TaskPriority,
 }
 
@@ -40,7 +40,7 @@ impl TaskBuilder<'_> {
   }
 
   /// Set the stack size in words.
-  pub const fn stack_size(mut self, stack_size: u16) -> Self {
+  pub const fn stack_size(mut self, stack_size: usize) -> Self {
     self.stack_size = stack_size;
     self
   }
