@@ -23,7 +23,7 @@ use core::{
 };
 
 use crate::{
-  shim::{configMINIMAL_STACK_SIZE, xTaskGetIdleTaskHandle, StaticTask_t, StackType_t, vTaskDelete},
+  shim::{configMINIMAL_STACK_SIZE, xTaskGetIdleTaskHandle, StaticTask_t, StackType_t},
   ffi::TaskHandle_t,
 };
 
