@@ -4,13 +4,20 @@ use core::{
   str,
 };
 
+use crate::shim::configMAX_TASK_NAME_LEN;
+
+const CAPACITY: usize = configMAX_TASK_NAME_LEN as usize;
+
 /// Helper struct for passing a `&str` to `xTaskCreate`.
 #[derive(Debug)]
-pub struct TaskName<const CAPACITY: usize> {
+pub struct TaskName {
   buf: [MaybeUninit<u8>; CAPACITY],
 }
 
-impl<const CAPACITY: usize> TaskName<CAPACITY> {
+impl TaskName {
+  /// Create a new task name.
+  ///
+  /// Silently truncates if the given string exceeds the maximum length.
   pub fn new(name: &str) -> Self {
     let mut buf = MaybeUninit::uninit_array();
 

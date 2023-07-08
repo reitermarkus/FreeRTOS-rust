@@ -1,16 +1,15 @@
-use core::marker::PhantomData;
+use core::{mem::{MaybeUninit, self}, ptr, ffi::c_void};
 
 use alloc2::{boxed::Box};
 
 use crate::{
-  alloc::Dynamic,
   CurrentTask,
-  lazy_init::{LazyPtr, LazyInit},
+  shim::{xTaskCreate, vTaskDelete, pdPASS},
 };
 #[cfg(freertos_feature = "static_allocation")]
-use crate::alloc::Static;
+use crate::StaticTask;
 
-use super::{Task, TaskPriority, TaskName, TaskMeta, MINIMAL_STACK_SIZE};
+use super::{Task, TaskPriority, TaskName, MINIMAL_STACK_SIZE};
 
 /// Helper for creating a new task returned by [`Task::new`].
 pub struct TaskBuilder<'n> {
@@ -51,29 +50,53 @@ impl TaskBuilder<'_> {
     self
   }
 
-  /// Create the dynamic [`Task`].
-  ///
-  /// The returned task needs to be started.
-  #[must_use = "task must be started"]
-  pub fn create<'f, F>(&self, f: F) -> Task<Dynamic>
+  /// Create the [`Task`].
+  pub fn create<'f, F>(&self, f: F) -> Task
   where
     F: FnOnce(&mut CurrentTask) + Send + 'static,
   {
-    let meta: <Task<Dynamic> as LazyInit>::Data = TaskMeta {
-      name: TaskName::new(self.name),
-      stack_size: self.stack_size,
-      priority: self.priority,
-      f: Some(Box::new(f)),
-    };
+    extern "C" fn task_function(param: *mut c_void) {
+      unsafe {
+        // NOTE: New scope so that everything is dropped before the task is deleted.
+        {
+          let mut current_task = CurrentTask::new_unchecked();
+          let function = Box::from_raw(param as *mut Box<dyn FnOnce(&mut CurrentTask)>);
+          function(&mut current_task);
+        }
 
-    Task {
-      alloc_type: PhantomData,
-      handle: LazyPtr::new(meta),
+        vTaskDelete(ptr::null_mut());
+        unreachable!();
+      }
+    }
+
+    let name = TaskName::new(self.name);
+
+    let function: Box<dyn FnOnce(&mut CurrentTask)> = Box::new(f);
+    let function_ptr: *mut Box<dyn FnOnce(&mut CurrentTask)> = Box::into_raw(Box::new(function));
+    let mut ptr = ptr::null_mut();
+
+    unsafe {
+      let res = xTaskCreate(
+        Some(task_function),
+        name.as_ptr(),
+        self.stack_size.try_into().unwrap_or(!0),
+        function_ptr.cast(),
+        self.priority.to_freertos(),
+        &mut ptr,
+      );
+
+      if res == pdPASS {
+        debug_assert!(!ptr.is_null());
+
+        Task { handle: ptr }
+      } else {
+        drop(Box::from_raw(function_ptr));
+        assert_eq!(res, pdPASS);
+        unreachable!();
+      }
     }
   }
-}
 
-impl TaskBuilder<'static> {
   /// Create the static [`Task`].
   ///
   /// The returned task needs to be started.
@@ -85,32 +108,64 @@ impl TaskBuilder<'static> {
   /// # Examples
   ///
   /// ```
+  /// use core::mem::MaybeUninit;
+  ///
   /// use freertos_rust::{alloc::Static, task::{Task, CurrentTask}};
   ///
   /// fn my_task(task: &mut CurrentTask) {
   ///   // ...
   /// }
   ///
-  /// // SAFETY: Assignment to a `static` ensures a `'static` lifetime.
-  /// static TASK: Task<Static, 1337> = unsafe {
-  ///   Task::new().create_static(my_task)
-  /// };
+  /// static mut TASK: MaybeUninit<StaticTask<STACK_SIZE>> = MaybeUninit::uninit();
+  /// // SAFETY: Only used once to create `my_task` below.
+  /// let task = unsafe { &mut TASK };
   ///
-  /// TASK.start();
+  /// Task::new().name("my_task").create_static(task, my_task)
   /// ```
-  #[must_use = "task must be started"]
   #[cfg(freertos_feature = "static_allocation")]
-  pub const unsafe fn create_static<const STACK_SIZE: usize>(self, f: fn(&mut CurrentTask)) -> Task<Static, STACK_SIZE> {
-    let meta: <Task<Static> as LazyInit>::Data = TaskMeta {
-      name: self.name,
-      stack_size: (),
-      priority: self.priority,
-      f,
-    };
+  pub fn create_static<const STACK_SIZE: usize>(self, task: &mut MaybeUninit<StaticTask<STACK_SIZE>>, f: fn(&mut CurrentTask)) -> &StaticTask<STACK_SIZE> {
+    use crate::shim::xTaskCreateStatic;
 
-    Task {
-      alloc_type: PhantomData,
-      handle: LazyPtr::new(meta),
+    assert!(STACK_SIZE <= self.stack_size);
+
+    extern "C" fn task_function(param: *mut c_void) {
+      unsafe {
+        // NOTE: New scope so that everything is dropped before the task is deleted.
+        {
+          let mut current_task = CurrentTask::new_unchecked();
+          let function: fn(&mut CurrentTask) = mem::transmute(param);
+          function(&mut current_task);
+        }
+
+        vTaskDelete(ptr::null_mut());
+        unreachable!();
+      }
+    }
+
+    let name = TaskName::new(self.name);
+
+    let function_ptr = f as *mut c_void;
+
+    let task_ptr = task.as_mut_ptr();
+
+    unsafe {
+      let stack_buffer = ptr::addr_of_mut!((*task_ptr).stack).cast();
+      let task_buffer = ptr::addr_of_mut!((*task_ptr).data);
+
+      let ptr = xTaskCreateStatic(
+        Some(task_function),
+        name.as_ptr(),
+        self.stack_size as _,
+        function_ptr,
+        self.priority.to_freertos(),
+        stack_buffer,
+        task_buffer,
+      );
+
+      debug_assert!(!ptr.is_null());
+      debug_assert_eq!(ptr, task_buffer.cast());
+
+      task.assume_init_ref()
     }
   }
 }

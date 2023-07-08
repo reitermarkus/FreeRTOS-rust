@@ -17,21 +17,15 @@
 //! ```
 
 use core::{
-  ffi::c_void,
   ptr,
-  marker::PhantomData,
-  ops::Deref, cell::UnsafeCell,
-  mem::{self, MaybeUninit},
+  ops::Deref,
+  mem::MaybeUninit,
 };
 
-use alloc2::boxed::Box;
-
-use crate::alloc::Dynamic;
-#[cfg(freertos_feature = "static_allocation")]
-use crate::alloc::Static;
-use crate::shim::*;
-use crate::lazy_init::LazyInit;
-use crate::lazy_init::LazyPtr;
+use crate::{
+  shim::{configMINIMAL_STACK_SIZE, xTaskGetIdleTaskHandle, StaticTask_t, StackType_t, vTaskDelete},
+  ffi::TaskHandle_t,
+};
 
 mod builder;
 pub use builder::TaskBuilder;
@@ -58,22 +52,12 @@ pub use system_state::{SystemState, TaskStatus};
 pub const MINIMAL_STACK_SIZE: usize = configMINIMAL_STACK_SIZE as usize;
 
 /// A task.
-pub struct Task<A = Dynamic, const STACK_SIZE: usize = MINIMAL_STACK_SIZE>
-where
-  Self: LazyInit,
-{
-  alloc_type: PhantomData<A>,
-  handle: LazyPtr<Self>,
+pub struct Task {
+  handle: TaskHandle_t,
 }
 
-unsafe impl<A, const STACK_SIZE: usize> Send for Task<A, STACK_SIZE>
-where
-  Self: LazyInit
-{}
-unsafe impl<A, const STACK_SIZE: usize> Sync for Task<A, STACK_SIZE>
-where
-  Self: LazyInit
-{}
+unsafe impl Send for Task {}
+unsafe impl Sync for Task {}
 
 impl Task {
   /// Prepare a builder object for the new task.
@@ -87,139 +71,29 @@ impl Task {
   }
 }
 
-impl<A, const STACK_SIZE: usize> Task<A, STACK_SIZE>
-where
-  Self: LazyInit<Handle = TaskHandle_t>,
-{
-  /// Start the task.
-  pub fn start(&self) -> &TaskHandle {
-    unsafe { TaskHandle::from_ptr(self.handle.as_ptr()) }
-  }
-}
-
-impl<A, const STACK_SIZE: usize> Deref for Task<A, STACK_SIZE>
-where
-  Self: LazyInit<Handle = TaskHandle_t>,
-{
+impl Deref for Task {
   type Target = TaskHandle;
 
   #[inline]
   fn deref(&self) -> &Self::Target {
-    self.start()
+    unsafe { TaskHandle::from_ptr(self.handle) }
   }
 }
 
-#[doc(hidden)]
-pub struct TaskMeta<N, S, F> {
-  name: N,
-  stack_size: S,
-  priority: TaskPriority,
-  f: F,
+/// A statically allocated task.
+pub struct StaticTask<const STACK_SIZE: usize = MINIMAL_STACK_SIZE> {
+  data: StaticTask_t,
+  stack: [MaybeUninit<StackType_t>; STACK_SIZE],
 }
 
-impl LazyInit for Task<Dynamic> {
-  type Storage = ();
-  type Handle = TaskHandle_t;
-  type Data = TaskMeta<TaskName<{ configMAX_TASK_NAME_LEN as usize }>, usize, Option<Box<dyn FnOnce(&mut CurrentTask)>>>;
+impl<const STACK_SIZE: usize> Deref for StaticTask<STACK_SIZE> {
+  type Target = TaskHandle;
 
-  fn init(data: &UnsafeCell<Self::Data>, _storage: &UnsafeCell<MaybeUninit<Self::Storage>>) -> Self::Ptr {
-    let data = unsafe { &mut *data.get() };
-
-    extern "C" fn task_function(param: *mut c_void) {
-      unsafe {
-        // NOTE: New scope so that everything is dropped before the task is deleted.
-        {
-          let mut current_task = CurrentTask::new_unchecked();
-          let function = Box::from_raw(param as *mut Box<dyn FnOnce(&mut CurrentTask)>);
-          function(&mut current_task);
-        }
-
-        vTaskDelete(ptr::null_mut());
-        unreachable!();
-      }
-    }
-
-    let mut function = Box::new(data.f.take().unwrap());
-    let function_ptr: *mut Box<dyn FnOnce(&mut CurrentTask)> = &mut *function;
-
-    let mut ptr = ptr::null_mut();
-    let res = unsafe {
-      xTaskCreate(
-        Some(task_function),
-        data.name.as_ptr(),
-        data.stack_size.try_into().unwrap_or(!0),
-        function_ptr.cast(),
-        data.priority.to_freertos(),
-        &mut ptr,
-      )
-    };
-    assert_eq!(res, pdPASS);
-    assert!(!ptr.is_null());
-
-    mem::forget(function);
-    unsafe { Self::Ptr::new_unchecked(ptr) }
-  }
-
-  fn cancel_init_supported() -> bool {
-    false
-  }
-
-  fn destroy(_ptr: Self::Ptr, _storage: &mut MaybeUninit<Self::Storage>) {
-    // Task deletes itself.
+  #[inline]
+  fn deref(&self) -> &Self::Target {
+    unsafe { TaskHandle::from_ptr(ptr::addr_of!(self.data) as TaskHandle_t) }
   }
 }
 
-#[cfg(freertos_feature = "static_allocation")]
-impl<const STACK_SIZE: usize> LazyInit for Task<Static, STACK_SIZE> {
-  type Storage = (MaybeUninit<StaticTask_t>, [MaybeUninit<StackType_t>; STACK_SIZE]);
-  type Handle = TaskHandle_t;
-  type Data = TaskMeta<&'static str, (), fn(&mut CurrentTask)>;
-
-  fn init(data: &UnsafeCell<Self::Data>, storage: &UnsafeCell<MaybeUninit<Self::Storage>>) -> Self::Ptr {
-    let data = unsafe { &mut *data.get() };
-    let (task, stack) = unsafe { (&mut *storage.get()).assume_init_mut() };
-
-    extern "C" fn task_function(param: *mut c_void) {
-      unsafe {
-        // NOTE: New scope so that everything is dropped before the task is deleted.
-        {
-          let mut current_task = CurrentTask::new_unchecked();
-          let function: fn(&mut CurrentTask) = mem::transmute(param);
-          function(&mut current_task);
-        }
-
-        vTaskDelete(ptr::null_mut());
-        unreachable!();
-      }
-    }
-
-    let name = TaskName::<{ configMAX_TASK_NAME_LEN as usize }>::new(data.name);
-
-    let function: fn(&mut CurrentTask) = data.f;
-    let function_ptr = function as *mut c_void;
-
-    let ptr = unsafe {
-      xTaskCreateStatic(
-        Some(task_function),
-        name.as_ptr(),
-        STACK_SIZE as _,
-        function_ptr,
-        data.priority.to_freertos(),
-        MaybeUninit::slice_as_mut_ptr(stack),
-        task.as_mut_ptr(),
-      )
-    };
-    debug_assert!(!ptr.is_null());
-
-
-    unsafe { Self::Ptr::new_unchecked(ptr) }
-  }
-
-  fn cancel_init_supported() -> bool {
-    false
-  }
-
-  fn destroy(_ptr: Self::Ptr, _storage: &mut MaybeUninit<Self::Storage>) {
-    // Task deletes itself.
-  }
-}
+unsafe impl<const STACK_SIZE: usize> Send for StaticTask<STACK_SIZE> {}
+unsafe impl<const STACK_SIZE: usize> Sync for StaticTask<STACK_SIZE> {}
