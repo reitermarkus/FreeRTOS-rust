@@ -73,6 +73,11 @@ impl CurrentTask {
     self.handle.clear_notification()
   }
 
+  /// Get the name of this task.
+  pub fn name(&self) -> &str {
+    self.handle.name()
+  }
+
   /// Delay the execution of the current task.
   pub fn delay(&mut self, delay: impl Into<Ticks>) {
     unsafe { vTaskDelay(delay.into().into()) }
