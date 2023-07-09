@@ -123,7 +123,7 @@ impl TaskBuilder<'_> {
   /// Task::new().name("my_task").create_static(task, my_task)
   /// ```
   #[cfg(freertos_feature = "static_allocation")]
-  pub fn create_static<const STACK_SIZE: usize>(self, task: &mut MaybeUninit<StaticTask<STACK_SIZE>>, f: fn(&mut CurrentTask)) -> &StaticTask<STACK_SIZE> {
+  pub fn create_static<const STACK_SIZE: usize>(self, task: &'static mut MaybeUninit<StaticTask<STACK_SIZE>>, f: fn(&mut CurrentTask)) -> &'static StaticTask<STACK_SIZE> {
     use crate::shim::xTaskCreateStatic;
 
     assert!(STACK_SIZE <= self.stack_size);
