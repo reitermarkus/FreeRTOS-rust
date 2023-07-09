@@ -4,7 +4,7 @@
 pub type BaseType_t = crate::shim::BaseType_t;
 
 /// Unsigned base integer type.
-pub type UBaseType_t = crate::shim::BaseType_t;
+pub type UBaseType_t = crate::shim::UBaseType_t;
 
 /// Raw semaphore handle.
 pub type SemaphoreHandle_t = crate::shim::SemaphoreHandle_t;

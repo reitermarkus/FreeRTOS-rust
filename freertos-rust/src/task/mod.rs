@@ -23,7 +23,7 @@ use core::{
 };
 
 use crate::{
-  shim::{configMINIMAL_STACK_SIZE, xTaskGetIdleTaskHandle, StaticTask_t, StackType_t},
+  shim::{configMINIMAL_STACK_SIZE, xTaskGetIdleTaskHandle, StaticTask_t, StackType_t, vTaskDelete},
   ffi::TaskHandle_t,
 };
 
@@ -92,6 +92,12 @@ impl<const STACK_SIZE: usize> Deref for StaticTask<STACK_SIZE> {
   #[inline]
   fn deref(&self) -> &Self::Target {
     unsafe { TaskHandle::from_ptr(ptr::addr_of!(self.data) as TaskHandle_t) }
+  }
+}
+
+impl<const STACK_SIZE: usize> Drop for StaticTask<STACK_SIZE> {
+  fn drop(&mut self) {
+      unsafe { vTaskDelete(self.as_ptr()) }
   }
 }
 

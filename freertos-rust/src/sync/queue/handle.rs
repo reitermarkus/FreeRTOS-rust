@@ -57,17 +57,28 @@ impl<T> QueueHandle<T> {
     unsafe { vQueueAddToRegistry(self.as_ptr(), name.as_ptr()) }
   }
 
+  /// Get the number of messages in the queue.
+  #[inline]
+  pub fn len(&self) -> usize {
+    unsafe { uxQueueMessagesWaiting(self.as_ptr()) as usize }
+  }
+}
+
+impl<T: Sized + Send> QueueHandle<T> {
   /// Send an item to the end of the queue. Wait for the queue to have empty space for it.
   #[inline]
   pub fn send(&self, item: T, timeout: impl Into<Ticks>) -> Result<(), FreeRtosError> {
-    let res = unsafe {
-      xQueueSend(self.as_ptr(), ptr::addr_of!(item).cast(), timeout.into().into())
-    };
-
-    match res {
-      pdTRUE => Ok(()),
-      errQUEUE_FULL => Err(FreeRtosError::QueueFull),
-      _ => Err(FreeRtosError::Timeout),
+    unsafe {
+      let mut item = MaybeUninit::new(item);
+      let res = xQueueSend(self.as_ptr(), item.as_ptr().cast(), timeout.into().into());
+      match res {
+        pdTRUE => Ok(()),
+        errQUEUE_FULL => {
+          item.assume_init_drop();
+          Err(FreeRtosError::QueueFull)
+        },
+        _ => unreachable!(),
+      }
     }
   }
 
@@ -78,14 +89,19 @@ impl<T> QueueHandle<T> {
       ic: &InterruptContext,
       item: T,
   ) -> Result<(), FreeRtosError> {
-    let res = unsafe {
-      xQueueSendFromISR(self.as_ptr(), ptr::addr_of!(item).cast(), ic.as_ptr())
-    };
 
-    match res {
-      pdTRUE => Ok(()),
-      errQUEUE_FULL => Err(FreeRtosError::QueueFull),
-      _ => unreachable!(),
+    unsafe {
+      let mut item: MaybeUninit<T> = MaybeUninit::new(item);
+      let res = xQueueSendFromISR(self.as_ptr(), item.as_ptr().cast(), ic.as_ptr());
+
+      match res {
+        pdTRUE => Ok(()),
+        errQUEUE_FULL => {
+          item.assume_init_drop();
+          Err(FreeRtosError::QueueFull)
+        },
+        _ => unreachable!(),
+      }
     }
   }
 
@@ -94,19 +110,12 @@ impl<T> QueueHandle<T> {
   pub fn receive(&self, timeout: impl Into<Ticks>) -> Result<T, FreeRtosError> {
     let mut item = MaybeUninit::<T>::zeroed();
 
-    let res = unsafe {
-      xQueueReceive(self.as_ptr(), item.as_mut_ptr().cast(), timeout.into().into())
-    };
-
-    match res {
-      pdTRUE => Ok(unsafe { item.assume_init() }),
-      _ => Err(FreeRtosError::Timeout),
+    unsafe {
+      let res = xQueueReceive(self.as_ptr(), item.as_mut_ptr().cast(), timeout.into().into());
+      match res {
+        pdTRUE => Ok(item.assume_init()),
+        _ => Err(FreeRtosError::Timeout),
+      }
     }
-  }
-
-  /// Get the number of messages in the queue.
-  #[inline]
-  pub fn len(&self) -> usize {
-    unsafe { uxQueueMessagesWaiting(self.as_ptr()) as usize }
   }
 }

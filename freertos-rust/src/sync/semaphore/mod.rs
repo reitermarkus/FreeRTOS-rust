@@ -98,7 +98,7 @@ impl<T> Deref for Semaphore<T> {
 
 impl<T> Drop for Semaphore<T> {
   fn drop(&mut self) {
-    unsafe { vSemaphoreDelete(self.handle) }
+    unsafe { vSemaphoreDelete(self.as_ptr()) }
   }
 }
 
@@ -189,6 +189,6 @@ impl<T> Deref for StaticSemaphore<T> {
 
 impl<T> Drop for StaticSemaphore<T> {
   fn drop(&mut self) {
-    unsafe { vSemaphoreDelete(ptr::addr_of!(self.data) as SemaphoreHandle_t) }
+    unsafe { vSemaphoreDelete(self.as_ptr()) }
   }
 }

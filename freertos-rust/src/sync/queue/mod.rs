@@ -1,172 +1,80 @@
-use core::cell::UnsafeCell;
-use core::marker::PhantomData;
-use core::mem::{MaybeUninit, size_of, self};
-use core::ops::Deref;
+use core::{
+  marker::PhantomData,
+  mem::{MaybeUninit, size_of, self},
+  ops::Deref,
+  ptr,
+};
 
 use alloc2::sync::Arc;
 
-use crate::FreeRtosError;
-use crate::InterruptContext;
-use crate::alloc::Dynamic;
-#[cfg(freertos_feature = "static_allocation")]
-use crate::alloc::Static;
-use crate::lazy_init::{LazyPtr, LazyInit};
-use crate::shim::*;
-use crate::Ticks;
+use crate::{
+  FreeRtosError,
+  InterruptContext,
+  Ticks,
+  ffi::{QueueHandle_t, UBaseType_t},
+  shim::{vQueueDelete, StaticQueue_t, xQueueCreate, xQueueCreateStatic},
+};
 
 mod handle;
 pub use handle::QueueHandle;
 
 /// A fixed-size queue. Items are copied and owned by the queue.
-pub struct Queue<T, const SIZE: usize, A = Dynamic>
-where
-  Self: LazyInit,
-{
-  alloc_type: PhantomData<A>,
+///
+/// # Example
+///
+/// ```
+/// use freertos_rust::sync::Queue;
+///
+/// let queue = Queue::<u32, 8>::new();
+/// queue.send(42);
+///
+/// let (_sender, receiver) = queue.split();
+/// assert_eq!(receiver.receive(), Ok(42));
+pub struct Queue<T, const SIZE: usize> {
+  handle: QueueHandle_t,
   item_type: PhantomData<T>,
-  handle: LazyPtr<Self>,
 }
 
-impl<T, const SIZE: usize> LazyInit for Queue<T, SIZE, Dynamic> {
-  type Storage = ();
-  type Handle = QueueHandle_t;
-  type Data = ();
+unsafe impl<T: Send, const SIZE: usize> Send for Queue<T, SIZE> {}
+unsafe impl<T: Send, const SIZE: usize> Sync for Queue<T, SIZE> {}
 
-  fn init(_data: &UnsafeCell<Self::Data>, _storage: &UnsafeCell<MaybeUninit<Self::Storage>>) -> Self::Ptr {
-    let handle = unsafe {
-      xQueueCreate(
-        (mem::size_of::<T>() * SIZE) as UBaseType_t,
-        size_of::<T>() as UBaseType_t,
-      )
-    };
-    assert!(!handle.is_null());
-    unsafe { Self::Ptr::new_unchecked(handle) }
-  }
+impl<T, const SIZE: usize> Queue<T, SIZE> {
+    /// Create a new dynamic queue.
+    pub fn new() -> Self {
+      let ptr = unsafe {
+        xQueueCreate(
+          (mem::size_of::<T>() * SIZE) as UBaseType_t,
+          size_of::<T>() as UBaseType_t,
+        )
+      };
+      assert!(!ptr.is_null());
 
-  fn destroy(ptr: Self::Ptr, _storage: &mut MaybeUninit<Self::Storage>) {
-    unsafe { vQueueDelete(ptr.as_ptr()) }
-  }
-}
-
-#[cfg(freertos_feature = "static_allocation")]
-impl<T, const SIZE: usize> LazyInit for Queue<T, SIZE, Static> {
-  type Storage = StaticQueue_t;
-  type Handle = QueueHandle_t;
-  type Data = [MaybeUninit<T>; SIZE];
-
-  fn init(data: &UnsafeCell<Self::Data>, storage: &UnsafeCell<MaybeUninit<Self::Storage>>) -> Self::Ptr {
-    let handle = unsafe {
-      let items = &mut *data.get();
-      let queue = &mut *storage.get();
-
-      xQueueCreateStatic(
-        SIZE as UBaseType_t,
-        size_of::<T>() as UBaseType_t,
-        MaybeUninit::slice_as_mut_ptr(items).cast(),
-        queue.as_mut_ptr(),
-      )
-    };
-    assert!(!handle.is_null());
-    unsafe { Self::Ptr::new_unchecked(handle) }
-  }
-
-  fn cancel_init_supported() -> bool {
-    false
-  }
-
-  fn destroy(ptr: Self::Ptr, storage: &mut MaybeUninit<Self::Storage>) {
-    unsafe {
-      vQueueDelete(ptr.as_ptr());
-      storage.assume_init_drop();
-    }
-  }
-}
-
-unsafe impl<T: Send, const SIZE: usize, A> Send for Queue<T, SIZE, A>
-where
-  Self: LazyInit,
-{}
-unsafe impl<T: Send, const SIZE: usize, A> Sync for Queue<T, SIZE, A>
-where
-  Self: LazyInit,
-{}
-
-impl<T: Sized + Send + Copy, const SIZE: usize> Queue<T, SIZE, Dynamic>
-where
-  Self: LazyInit<Data = ()>,
-{
-    /// Create a new dynamic `Queue`.
-    pub const fn new() -> Self {
       Self {
-        alloc_type: PhantomData,
+        handle: ptr,
         item_type: PhantomData,
-        handle: LazyPtr::new(())
       }
     }
 }
 
-#[cfg(freertos_feature = "static_allocation")]
-impl<T: Sized + Send + Copy, const SIZE: usize> Queue<T, SIZE, Static>
-where
-  Self: LazyInit<Data = [MaybeUninit<T>; SIZE]>,
-{
-    /// Create a new static `Queue`.
-    ///
-    /// # Safety
-    ///
-    /// The returned queue must have a `'static` lifetime.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use freertos_rust::{alloc::Static, sync::Queue};
-    ///
-    /// // SAFETY: Assignment to a `static` ensures a `'static` lifetime.
-    /// static QUEUE: Queue<u32, 8, Static> = unsafe {
-    ///   Queue::new_static()
-    /// };
-    /// ```
-    pub const unsafe fn new_static() -> Self {
-      Self {
-        alloc_type: PhantomData,
-        item_type: PhantomData,
-        handle: LazyPtr::new(MaybeUninit::uninit_array()),
-      }
-    }
-}
-
-impl<T: Sized + Send + Copy, const SIZE: usize, A> Deref for Queue<T, SIZE, A>
-where
-  Self: LazyInit<Handle = QueueHandle_t>,
-{
-  type Target = QueueHandle<T>;
-
-  fn deref(&self) -> &Self::Target {
-    // Ensure semaphore is initialized.
-    let handle = self.handle.as_ptr();
-    unsafe { QueueHandle::<T>::from_ptr(handle) }
-  }
-}
-
-impl<T: Sized + Send + Copy, const SIZE: usize> Queue<T, SIZE, Dynamic>
-where
-  Self: LazyInit<Handle = QueueHandle_t>,
-{
+impl<T, const SIZE: usize> Queue<T, SIZE> {
     /// Create a sender/receiver pair from this queue.
     pub fn split(self: Arc<Self>) -> (Sender<Arc<Self>>, Receiver<Arc<Self>>) {
       (Sender { queue: Arc::clone(&self) }, Receiver { queue: self })
     }
 }
 
-#[cfg(freertos_feature = "static_allocation")]
-impl<T: Sized + Send + Copy, const SIZE: usize> Queue<T, SIZE, Static>
-where
-  Self: LazyInit<Handle = QueueHandle_t>,
-{
-    /// Create a sender/receiver pair from this queue.
-    pub fn split(&'static self) -> (Sender<&'static Self>, Receiver<&'static Self>) {
-      (Sender { queue: self }, Receiver { queue: self })
-    }
+impl<T, const SIZE: usize> Deref for Queue<T, SIZE> {
+  type Target = QueueHandle<T>;
+
+  fn deref(&self) -> &Self::Target {
+    unsafe { QueueHandle::<T>::from_ptr(self.handle) }
+  }
+}
+
+impl<T, const SIZE: usize> Drop for Queue<T, SIZE> {
+  fn drop(&mut self) {
+    unsafe { vQueueDelete(self.handle) }
+  }
 }
 
 /// A sender for a queue.
@@ -176,6 +84,7 @@ pub struct Sender<Q: Deref> {
 
 impl<Q, T> Sender<Q>
 where
+  T: Sized + Send,
   Q: Deref<Target = QueueHandle<T>>,
 {
 
@@ -199,11 +108,78 @@ pub struct Receiver<Q: Deref> {
 
 impl<Q, T> Receiver<Q>
 where
+  T: Sized + Send,
   Q: Deref<Target = QueueHandle<T>>,
 {
   /// Wait for an item to be available on the queue.
   #[inline]
   pub fn receive(&self, timeout: impl Into<Ticks>) -> Result<T, FreeRtosError> {
     self.queue.receive(timeout)
+  }
+}
+
+/// A statically allocated fixed-size queue. Items are copied and owned by the queue.
+///
+/// # Examples
+///
+/// ```
+/// use core::mem::MaybeUninit;
+///
+/// use freertos_rust::sync::StaticQueue;
+///
+/// let queue = StaticQueue::new(unsafe {
+///   static mut QUEUE: MaybeUninit<StaticQueue<u32, 8>> = MaybeUninit::uninit();
+///   &mut QUEUE
+/// });
+/// queue.send(42);
+///
+/// let (_sender, receiver) = queue.split();
+/// assert_eq!(receiver.receive(), Ok(42));
+/// ```
+pub struct StaticQueue<T, const SIZE: usize> {
+  data: StaticQueue_t,
+  items: [MaybeUninit<T>; SIZE],
+}
+
+unsafe impl<T: Send, const SIZE: usize> Send for StaticQueue<T, SIZE> {}
+unsafe impl<T: Send, const SIZE: usize> Sync for StaticQueue<T, SIZE> {}
+
+impl<T, const SIZE: usize> StaticQueue<T, SIZE> {
+  /// Create a new static queue.
+  pub fn new(queue: &'static mut MaybeUninit<Self>) -> &'static Self {
+    let queue_ptr = queue.as_mut_ptr();
+
+    unsafe {
+      let ptr = xQueueCreateStatic(
+        SIZE as UBaseType_t,
+        size_of::<T>() as UBaseType_t,
+        ptr::addr_of_mut!((*queue_ptr).items).cast(),
+        ptr::addr_of_mut!((*queue_ptr).data),
+      );
+      debug_assert!(!ptr.is_null());
+      debug_assert_eq!(ptr, ptr::addr_of!((*queue_ptr).data) as QueueHandle_t);
+      queue.assume_init_ref()
+    }
+  }
+}
+
+impl<T, const SIZE: usize> StaticQueue<T, SIZE> {
+  /// Create a sender/receiver pair from this queue.
+  pub fn split(&'static self) -> (Sender<&'static Self>, Receiver<&'static Self>) {
+    (Sender { queue: self }, Receiver { queue: self })
+  }
+}
+
+impl<T, const SIZE: usize> Deref for StaticQueue<T, SIZE> {
+  type Target = QueueHandle<T>;
+
+  fn deref(&self) -> &Self::Target {
+    unsafe { QueueHandle::<T>::from_ptr(ptr::addr_of!(self.data) as QueueHandle_t) }
+  }
+}
+
+impl<T, const SIZE: usize> Drop for StaticQueue<T, SIZE> {
+  fn drop(&mut self) {
+    unsafe { vQueueDelete(self.as_ptr()) }
   }
 }
