@@ -5,8 +5,9 @@ use std::process::exit;
 use walkdir::WalkDir;
 
 /// Get the heap implementation from `cargo` features.
-pub fn heap() -> PathBuf {
+pub fn heap() -> Option<PathBuf> {
   let mut heap = None;
+
   for i in 1..=5 {
     if env::var(&format!("CARGO_FEATURE_HEAP_{i}")).is_ok() {
       if let Some(h) = heap {
@@ -18,7 +19,7 @@ pub fn heap() -> PathBuf {
     }
   }
 
-  format!("heap_{}.c", heap.unwrap_or(4)).into()
+  heap.map(|heap| format!("heap_{}.c", heap).into())
 }
 
 /// Get the port directory for the target.
@@ -74,11 +75,14 @@ pub fn builders(
   let include = source.join("include");
   let portable = source.join("portable");
   let port = portable.join(&port());
-  let heap = portable.join("MemMang").join(&heap());
+  let heap = heap().map(|heap| portable.join("MemMang").join(heap));
 
   let mut c_files = find_c_files(source, Some(1)).unwrap();
   c_files.extend(find_c_files(&port, None).unwrap());
-  c_files.push(heap);
+
+  if let Some(heap) = heap {
+    c_files.push(heap);
+  }
 
   let includes = vec![
     include,
