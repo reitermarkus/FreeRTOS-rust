@@ -50,6 +50,7 @@ macro_rules! impl_mutex {
       handle: LazyPtr<Self>,
     }
 
+    #[cfg(freertos_feature = "dynamic_allocation")]
     impl<T: ?Sized> LazyInit for $mutex<T, Dynamic> {
       type Storage = ();
       type Handle = SemaphoreHandle_t;
@@ -106,6 +107,7 @@ macro_rules! impl_mutex {
       Self: LazyInit<Data = T>,
     {}
 
+    #[cfg(freertos_feature = "dynamic_allocation")]
     impl<T> $mutex<T, Dynamic>
     where
       Self: LazyInit<Data = T>,

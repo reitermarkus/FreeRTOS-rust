@@ -4,10 +4,12 @@ use alloc2::{boxed::Box};
 
 use crate::{
   CurrentTask,
-  shim::{xTaskCreate, vTaskDelete, pdPASS},
+  shim::{vTaskDelete, pdPASS},
 };
+#[cfg(freertos_feature = "dynamic_allocation")]
+use crate::shim::xTaskCreate;
 #[cfg(freertos_feature = "static_allocation")]
-use crate::StaticTask;
+use crate::{StaticTask, shim::xTaskCreateStatic};
 
 use super::{Task, TaskPriority, TaskName, MINIMAL_STACK_SIZE};
 
@@ -51,6 +53,7 @@ impl TaskBuilder<'_> {
   }
 
   /// Create the [`Task`].
+  #[cfg(freertos_feature = "dynamic_allocation")]
   pub fn create<'f, F>(&self, f: F) -> Task
   where
     F: FnOnce(&mut CurrentTask) + Send + 'static,
@@ -124,8 +127,6 @@ impl TaskBuilder<'_> {
   /// ```
   #[cfg(freertos_feature = "static_allocation")]
   pub fn create_static<const STACK_SIZE: usize>(self, task: &'static mut MaybeUninit<StaticTask<STACK_SIZE>>, f: fn(&mut CurrentTask)) -> &'static StaticTask<STACK_SIZE> {
-    use crate::shim::xTaskCreateStatic;
-
     assert!(STACK_SIZE <= self.stack_size);
 
     extern "C" fn task_function(param: *mut c_void) {

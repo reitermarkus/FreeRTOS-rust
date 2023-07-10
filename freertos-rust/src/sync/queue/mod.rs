@@ -12,8 +12,12 @@ use crate::{
   InterruptContext,
   Ticks,
   ffi::{QueueHandle_t, UBaseType_t},
-  shim::{vQueueDelete, StaticQueue_t, xQueueCreate, xQueueCreateStatic},
+  shim::{vQueueDelete, StaticQueue_t},
 };
+#[cfg(freertos_feature = "dynamic_allocation")]
+use crate::shim::xQueueCreate;
+#[cfg(freertos_feature = "static_allocation")]
+use crate::shim::xQueueCreateStatic;
 
 mod handle;
 pub use handle::QueueHandle;
@@ -38,6 +42,7 @@ pub struct Queue<T, const SIZE: usize> {
 unsafe impl<T: Send, const SIZE: usize> Send for Queue<T, SIZE> {}
 unsafe impl<T: Send, const SIZE: usize> Sync for Queue<T, SIZE> {}
 
+#[cfg(freertos_feature = "dynamic_allocation")]
 impl<T, const SIZE: usize> Queue<T, SIZE> {
     /// Create a new dynamic queue.
     pub fn new() -> Self {
@@ -144,6 +149,7 @@ pub struct StaticQueue<T, const SIZE: usize> {
 unsafe impl<T: Send, const SIZE: usize> Send for StaticQueue<T, SIZE> {}
 unsafe impl<T: Send, const SIZE: usize> Sync for StaticQueue<T, SIZE> {}
 
+#[cfg(freertos_feature = "static_allocation")]
 impl<T, const SIZE: usize> StaticQueue<T, SIZE> {
   /// Create a new static queue.
   pub fn new(queue: &'static mut MaybeUninit<Self>) -> &'static Self {

@@ -46,7 +46,10 @@ where
   Self: LazyInit,
 {}
 
-impl Timer<'_> {
+impl<'f, A> Timer<'f, A>
+where
+  Self: LazyInit
+{
   /// Stack size of the timer daemon task.
   pub const STACK_SIZE: u16 = configTIMER_TASK_STACK_DEPTH;
 
@@ -103,6 +106,7 @@ pub struct TimerMeta<'f, F> {
   callback: F,
 }
 
+#[cfg(freertos_feature = "dynamic_allocation")]
 impl<'f> LazyInit for Timer<'f, Dynamic> {
   type Storage = ();
   type Handle = TimerHandle_t;

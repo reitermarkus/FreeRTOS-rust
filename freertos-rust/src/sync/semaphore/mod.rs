@@ -13,12 +13,12 @@ use crate::{
   shim::{
     StaticSemaphore_t,
     vSemaphoreDelete,
-    xSemaphoreCreateBinary,
-    xSemaphoreCreateCountingStatic,
-    xSemaphoreCreateCounting,
-    xSemaphoreCreateBinaryStatic,
   },
 };
+#[cfg(freertos_feature = "dynamic_allocation")]
+use crate::shim::{xSemaphoreCreateBinary, xSemaphoreCreateCounting};
+#[cfg(freertos_feature = "static_allocation")]
+use crate::shim::{xSemaphoreCreateBinaryStatic, xSemaphoreCreateCountingStatic};
 
 /// Marker type for a binary semaphore.
 #[non_exhaustive]
@@ -58,6 +58,7 @@ macro_rules! impl_semaphore {
     $new_fn:ident,
     $variant_name:ident,
   ) => {
+    #[cfg(freertos_feature = "dynamic_allocation")]
     impl<$(const $initial: $initial_ty, const $max: $max_ty)*> Semaphore<$semaphore$(<$initial, $max>)*> {
       #[doc = concat!("Create a new dynamic ", stringify!($variant_name), " semaphore.")]
       pub fn $new_fn() -> Self {
@@ -147,6 +148,7 @@ macro_rules! impl_static_semaphore {
     $new_fn:ident,
     $variant_name:ident,
   ) => {
+    #[cfg(freertos_feature = "static_allocation")]
     impl<$(const $initial: $initial_ty, const $max: $max_ty)*> StaticSemaphore<$semaphore$(<$max, $initial>)*> {
       #[doc = concat!("Create a new static ", stringify!($variant_name), " semaphore.")]
       pub fn $new_fn(semaphore: &'static mut MaybeUninit<StaticSemaphore<$semaphore$(<$initial, $max>)*>>) -> &'static StaticSemaphore<$semaphore$(<$initial, $max>)*> {

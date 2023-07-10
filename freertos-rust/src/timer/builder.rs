@@ -1,6 +1,7 @@
 use core::ffi::CStr;
 use core::marker::PhantomData;
 
+#[cfg(freertos_feature = "dynamic_allocation")]
 use alloc2::{boxed::Box};
 
 use crate::Ticks;
@@ -45,6 +46,7 @@ impl<'n> TimerBuilder<'n> {
   ///
   /// Note that the newly created timer must be started.
   #[must_use]
+  #[cfg(freertos_feature = "dynamic_allocation")]
   pub fn create<'f, F>(self, callback: F) -> Timer<'f, Dynamic>
   where
     F: Fn(&TimerHandle) + Send + 'f,

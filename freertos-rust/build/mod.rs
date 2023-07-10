@@ -25,6 +25,10 @@ impl ParseCallbacks for Callbacks {
   }
 
   fn int_macro(&self, name: &str, value: i64) -> Option<IntKind> {
+    if name == "configSUPPORT_DYNAMIC_ALLOCATION" && value != 0 {
+      println!(r#"cargo:rustc-cfg=freertos_feature="dynamic_allocation""#);
+    }
+
     if name == "configSUPPORT_STATIC_ALLOCATION" && value != 0 {
       println!(r#"cargo:rustc-cfg=freertos_feature="static_allocation""#);
     }
