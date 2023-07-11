@@ -1,17 +1,21 @@
-use core::ffi::CStr;
-use core::marker::PhantomData;
+use core::{ptr, ffi::CStr};
+#[cfg(freertos_feature = "static_allocation")]
+use core::mem::{self, MaybeUninit};
 
 #[cfg(freertos_feature = "dynamic_allocation")]
-use alloc2::{boxed::Box};
+use alloc2::boxed::Box;
 
-use crate::Ticks;
-use crate::alloc::Dynamic;
+use crate::{
+  ffi::TimerHandle_t,
+  shim::{pdFALSE, pdTRUE, pvTimerGetTimerID},
+  Ticks,
+};
+#[cfg(freertos_feature = "dynamic_allocation")]
+use crate::shim::xTimerCreate;
 #[cfg(freertos_feature = "static_allocation")]
-use crate::alloc::Static;
-use crate::lazy_init::LazyInit;
-use crate::lazy_init::LazyPtr;
+use crate::shim::xTimerCreateStatic;
 
-use super::{Timer, TimerMeta, TimerHandle};
+use super::{Timer, StaticTimer, TimerHandle};
 
 /// Helper struct for creating a new timer returned by [`Timer::new`].
 pub struct TimerBuilder<'n> {
@@ -47,24 +51,44 @@ impl<'n> TimerBuilder<'n> {
   /// Note that the newly created timer must be started.
   #[must_use]
   #[cfg(freertos_feature = "dynamic_allocation")]
-  pub fn create<'f, F>(self, callback: F) -> Timer<'f, Dynamic>
+  pub fn create<F>(self, callback: F) -> Timer
   where
-    F: Fn(&TimerHandle) + Send + 'f,
-    'n: 'f,
+    F: Fn(&TimerHandle) + Send + 'static,
   {
-    let meta: <Timer<'f, Dynamic> as LazyInit>::Data = TimerMeta {
-      name: self.name,
-      period: self.period.into(),
-      auto_reload: self.auto_reload,
-      callback: Box::pin(Box::new(callback)),
+    extern "C" fn timer_callback(ptr: TimerHandle_t) -> () {
+      unsafe {
+        let handle = TimerHandle::from_ptr(ptr);
+
+        let callback_ptr = pvTimerGetTimerID(ptr);
+        let callback: &mut Box<dyn Fn(&TimerHandle)> = &mut *callback_ptr.cast();
+        callback(handle);
+      }
+    }
+
+    let name = if let Some(name) = self.name {
+      name.as_ptr()
+    } else {
+      ptr::null()
     };
 
-    Timer {
-      alloc_type: PhantomData,
-      handle: LazyPtr::new(meta),
-    }
+    let callback = Box::new(callback);
+    let callback_ptr: *mut Box<dyn Fn(&TimerHandle)> = Box::into_raw(Box::new(callback));
+
+    let ptr = unsafe {
+      xTimerCreate(
+        name,
+        self.period.ticks,
+        if self.auto_reload { pdTRUE } else { pdFALSE } as _,
+        callback_ptr.cast(),
+        Some(timer_callback),
+      )
+    };
+    assert!(!ptr.is_null());
+
+    Timer { handle: ptr }
   }
 }
+
 
 impl TimerBuilder<'static> {
   /// Create the static [`Timer`].
@@ -94,17 +118,41 @@ impl TimerBuilder<'static> {
   /// ```
   #[must_use]
   #[cfg(freertos_feature = "static_allocation")]
-  pub const unsafe fn create_static(self, callback: fn(timer: &TimerHandle)) -> Timer<'static, Static> {
-    let meta = TimerMeta {
-      name: self.name,
-      period: self.period,
-      auto_reload: self.auto_reload,
-      callback,
+  pub fn create_static(self, timer: &'static mut MaybeUninit<StaticTimer>, callback: fn(timer: &TimerHandle)) -> &'static StaticTimer {
+    extern "C" fn timer_callback(ptr: TimerHandle_t) -> () {
+      unsafe {
+        let handle = TimerHandle::from_ptr(ptr);
+
+        let callback_ptr = pvTimerGetTimerID(ptr);
+        let callback: fn(&TimerHandle) = mem::transmute(callback_ptr);
+        callback(handle);
+      }
+    }
+
+    let timer_ptr = timer.as_mut_ptr();
+
+    let name = if let Some(name) = self.name {
+      name.as_ptr()
+    } else {
+      ptr::null()
     };
 
-    Timer {
-      alloc_type: PhantomData,
-      handle: LazyPtr::new(meta),
+    let callback_ptr = callback as *mut _;
+
+    unsafe {
+      let ptr = xTimerCreateStatic(
+        name,
+        self.period.ticks,
+        if self.auto_reload { pdTRUE } else { pdFALSE } as _,
+        callback_ptr,
+        Some(timer_callback),
+        ptr::addr_of_mut!((*timer_ptr).data),
+      );
+
+      debug_assert!(!ptr.is_null());
+      debug_assert_eq!(ptr, ptr::addr_of_mut!((*timer_ptr).data) as TimerHandle_t);
+
+      timer.assume_init_ref()
     }
   }
 }
