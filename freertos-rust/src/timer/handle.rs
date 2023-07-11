@@ -4,8 +4,8 @@ use core::ptr;
 use crate::FreeRtosError;
 use crate::InterruptContext;
 use crate::Ticks;
+use crate::ffi::Pointee;
 use crate::ffi::TimerHandle_t;
-use crate::lazy_init::PtrType;
 use crate::shim::pcTimerGetName;
 use crate::shim::pdFALSE;
 use crate::shim::pdPASS;
@@ -23,7 +23,7 @@ use crate::shim::xTimerStopFromISR;
 ///
 /// This type is compatible with a raw FreeRTOS [`TimerHandle_t`].
 #[repr(transparent)]
-pub struct TimerHandle(<TimerHandle_t as PtrType>::Type);
+pub struct TimerHandle(Pointee<TimerHandle_t>);
 
 impl TimerHandle {
   /// Create a `TimerHandle` from a raw handle.
@@ -34,7 +34,8 @@ impl TimerHandle {
   /// - The timer must not be deleted for the lifetime `'a` of the returned `TimerHandle`.
   #[inline]
   pub const unsafe fn from_ptr<'a>(ptr: TimerHandle_t) -> &'a Self {
-    &*ptr.cast::<Self>()
+    debug_assert!(!ptr.is_null());
+    &*ptr.cast()
   }
 
   /// Get the raw timer handle.

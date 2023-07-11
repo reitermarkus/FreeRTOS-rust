@@ -4,8 +4,7 @@ use crate::{
   FreeRtosError,
   InterruptContext,
   Ticks,
-  lazy_init::PtrType,
-  ffi::SemaphoreHandle_t,
+  ffi::{SemaphoreHandle_t, Pointee},
   shim::{
     errQUEUE_FULL,
     pdFALSE,
@@ -27,7 +26,7 @@ use super::SemaphoreGuard;
 ///
 /// This type is compatible with a raw FreeRTOS [`SemaphoreHandle_t`].
 #[repr(transparent)]
-pub struct SemaphoreHandle(<SemaphoreHandle_t as PtrType>::Type);
+pub struct SemaphoreHandle(Pointee<SemaphoreHandle_t>);
 
 impl fmt::Debug for SemaphoreHandle {
   fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -44,7 +43,8 @@ impl SemaphoreHandle {
   /// - The semaphore must not be deleted for the lifetime `'a` of the returned `SemaphoreHandle`.
   #[inline]
   pub const unsafe fn from_ptr<'a>(ptr: SemaphoreHandle_t) -> &'a Self {
-    &*ptr.cast::<Self>()
+    debug_assert!(!ptr.is_null());
+    &*ptr.cast()
   }
 
   /// Get the raw semaphore handle.

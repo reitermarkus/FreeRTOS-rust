@@ -47,8 +47,6 @@ pub mod critical_section;
 
 mod interrupt_context;
 
-mod lazy_init;
-
 #[cfg(feature = "sync")]
 pub mod sync;
 #[cfg(feature = "sync")]

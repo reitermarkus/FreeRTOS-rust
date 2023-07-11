@@ -32,8 +32,8 @@ macro_rules! impl_mutex_handle {
     ///
     #[doc = concat!("`", stringify!($handle), "<()>` is compatible with a raw FreeRTOS [`SemaphoreHandle_t`].")]
     pub struct $handle<T: ?Sized = ()> {
-      ptr: SemaphoreHandle_t,
-      data: UnsafeCell<T>,
+      pub(super) ptr: SemaphoreHandle_t,
+      pub(super) data: UnsafeCell<T>,
     }
 
     impl<T: ?Sized> fmt::Debug for $handle<T> {
@@ -52,6 +52,7 @@ macro_rules! impl_mutex_handle {
       #[doc = concat!("- The mutex must not be deleted for the lifetime of the returned `" , stringify!($handle), "`.")]
       #[inline]
       pub const unsafe fn from_ptr(ptr: SemaphoreHandle_t) -> Self {
+        debug_assert!(!ptr.is_null());
         Self {
           ptr,
           data: UnsafeCell::new(()),

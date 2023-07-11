@@ -2,6 +2,7 @@ use core::{ffi::CStr, str, fmt, ptr};
 
 use crate::FreeRtosError;
 use crate::InterruptContext;
+use crate::ffi::Pointee;
 use crate::shim::{pdTRUE, pcTaskGetName, configTASK_NOTIFICATION_ARRAY_ENTRIES};
 use crate::shim::uxTaskGetStackHighWaterMark;
 use crate::shim::vTaskResume;
@@ -9,7 +10,6 @@ use crate::shim::vTaskSuspend;
 use crate::shim::xTaskNotifyFromISR;
 use crate::shim::xTaskNotifyStateClear;
 use crate::task::TaskNotification;
-use crate::lazy_init::PtrType;
 use crate::ffi::TaskHandle_t;
 use crate::shim::freertos_rs_task_notify_indexed;
 use crate::shim::freertos_rs_task_notify_indexed_from_isr;
@@ -23,7 +23,7 @@ use crate::shim::{uxTaskGetTaskNumber, vTaskSetTaskNumber};
 ///
 /// This type is compatible with a raw FreeRTOS [`TaskHandle_t`].
 #[repr(transparent)]
-pub struct TaskHandle(<TaskHandle_t as PtrType>::Type);
+pub struct TaskHandle(Pointee<TaskHandle_t>);
 
 impl fmt::Debug for TaskHandle {
   fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -40,7 +40,8 @@ impl TaskHandle {
   /// - The task must not be deleted for the lifetime `'a` of the returned `TaskHandle`.
   #[inline]
   pub const unsafe fn from_ptr<'a>(ptr: TaskHandle_t) -> &'a Self {
-    &*ptr.cast::<Self>()
+    debug_assert!(!ptr.is_null());
+    &*ptr.cast()
   }
 
   /// Get the raw task handle.

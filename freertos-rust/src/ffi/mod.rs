@@ -20,3 +20,14 @@ pub type TimerHandle_t = crate::shim::TimerHandle_t;
 
 /// Raw task handle.
 pub type TaskHandle_t = crate::shim::TaskHandle_t;
+
+/// Helper trait to get the pointee type.
+pub(crate) trait PtrType {
+  type Type;
+}
+
+impl<T> PtrType for *mut T {
+  type Type = T;
+}
+
+pub(crate) type Pointee<T> = <T as PtrType>::Type;

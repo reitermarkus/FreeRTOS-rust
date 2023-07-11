@@ -6,7 +6,7 @@ use core::ptr;
 
 use crate::FreeRtosError;
 use crate::InterruptContext;
-use crate::lazy_init::PtrType;
+use crate::ffi::Pointee;
 use crate::ffi::QueueHandle_t;
 use crate::shim::{
   pdTRUE,
@@ -25,7 +25,10 @@ use crate::Ticks;
 ///
 /// This type is compatible with a raw FreeRTOS [`QueueHandle_t`].
 #[repr(transparent)]
-pub struct QueueHandle<T>(<QueueHandle_t as PtrType>::Type, PhantomData<T>);
+pub struct QueueHandle<T> {
+  handle: Pointee<QueueHandle_t>,
+  item_type: PhantomData<T>,
+}
 
 impl<T> fmt::Debug for QueueHandle<T> {
   fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -42,13 +45,14 @@ impl<T> QueueHandle<T> {
   /// - The queue must not be deleted for the lifetime `'a` of the returned `QueueHandle`.
   #[inline]
   pub const unsafe fn from_ptr<'a>(ptr: QueueHandle_t) -> &'a Self {
-    &*ptr.cast::<Self>()
+    debug_assert!(!ptr.is_null());
+    &*ptr.cast()
   }
 
   /// Get the raw queue handle.
   #[inline]
   pub const fn as_ptr(&self) -> QueueHandle_t {
-    ptr::addr_of!(self.0).cast_mut()
+    ptr::addr_of!(self.handle).cast_mut()
   }
 
   /// Assign a name to the queue and add it to the registry.
