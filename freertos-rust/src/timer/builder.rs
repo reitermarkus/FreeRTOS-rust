@@ -51,7 +51,7 @@ impl<'n> TimerBuilder<'n> {
   /// Note that the newly created timer must be started.
   #[must_use]
   #[cfg(freertos_feature = "dynamic_allocation")]
-  pub fn create<F>(self, callback: F) -> Timer
+  pub fn create<F>(self, callback: F) -> Timer<'n>
   where
     F: Fn(&TimerHandle) + Send + 'static,
   {
@@ -74,23 +74,20 @@ impl<'n> TimerBuilder<'n> {
     let callback = Box::new(callback);
     let callback_ptr: *mut Box<dyn Fn(&TimerHandle)> = Box::into_raw(Box::new(callback));
 
-    let ptr = unsafe {
-      xTimerCreate(
+    unsafe {
+      let ptr = xTimerCreate(
         name,
         self.period.ticks,
         if self.auto_reload { pdTRUE } else { pdFALSE } as _,
         callback_ptr.cast(),
         Some(timer_callback),
-      )
-    };
-    assert!(!ptr.is_null());
+      );
+      assert!(!ptr.is_null());
 
-    Timer { handle: ptr }
+      Timer { handle: ptr, callback: Some(Box::from_raw(callback_ptr)), name: self.name }
+    }
   }
-}
 
-
-impl TimerBuilder<'static> {
   /// Create the static [`Timer`].
   ///
   /// Note that the newly created timer must be started.
@@ -118,7 +115,7 @@ impl TimerBuilder<'static> {
   /// ```
   #[must_use]
   #[cfg(freertos_feature = "static_allocation")]
-  pub fn create_static(self, timer: &'static mut MaybeUninit<StaticTimer>, callback: fn(timer: &TimerHandle)) -> &'static StaticTimer {
+  pub fn create_static(self, timer: &'static mut MaybeUninit<StaticTimer>, callback: fn(timer: &TimerHandle)) -> Timer<'n> {
     extern "C" fn timer_callback(ptr: TimerHandle_t) -> () {
       unsafe {
         let handle = TimerHandle::from_ptr(ptr);
@@ -152,7 +149,12 @@ impl TimerBuilder<'static> {
       debug_assert!(!ptr.is_null());
       debug_assert_eq!(ptr, ptr::addr_of_mut!((*timer_ptr).data) as TimerHandle_t);
 
-      timer.assume_init_ref()
+      Timer {
+        handle: ptr,
+        #[cfg(freertos_feature = "dynamic_allocation")]
+        callback: None,
+        name: self.name
+      }
     }
   }
 }

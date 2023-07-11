@@ -1,7 +1,6 @@
 use core::cell::UnsafeCell;
 use core::fmt;
 use core::ptr;
-use core::marker::PhantomData;
 use core::mem::{MaybeUninit, ManuallyDrop};
 use core::ops::{Deref, DerefMut};
 
@@ -267,6 +266,7 @@ impl_mutex!(
   "recursive",
 );
 
+/// A statically allocated mutex.
 pub struct StaticMutex {
   data: StaticSemaphore_t,
 }

@@ -27,6 +27,7 @@
 #![feature(associated_type_defaults)]
 #![feature(const_mut_refs)]
 #![feature(negative_impls)]
+#![feature(const_ptr_is_null)]
 #![warn(missing_docs)]
 
 #[cfg_attr(any(feature = "time", feature = "sync"), macro_use)]

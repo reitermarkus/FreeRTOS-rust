@@ -1,7 +1,8 @@
 //! FreeRTOS timer primitives.
 
-use core::{ops::Deref, ptr};
+use core::{ffi::CStr, ops::Deref};
 
+#[cfg(freertos_feature = "dynamic_allocation")]
 use alloc2::boxed::Box;
 
 use crate::shim::*;
@@ -19,14 +20,19 @@ pub use handle::TimerHandle;
 /// that receives messages in a queue. Every operation has an associated waiting time
 /// for that queue to get unblocked.
 #[must_use = "timer will be deleted immediately if unused"]
-pub struct Timer {
+pub struct Timer<'n> {
   handle: TimerHandle_t,
+  #[cfg(freertos_feature = "dynamic_allocation")]
+  #[allow(unused)]
+  callback: Option<Box<Box<dyn Fn(&TimerHandle)>>>,
+  #[allow(unused)]
+  name: Option<&'n CStr>,
 }
 
-unsafe impl Send for Timer {}
-unsafe impl Sync for Timer {}
+unsafe impl<'n> Send for Timer<'n> {}
+unsafe impl<'n> Sync for Timer<'n> {}
 
-impl Timer {
+impl<'n> Timer<'n> {
   /// Stack size of the timer daemon task.
   pub const STACK_SIZE: u16 = configTIMER_TASK_STACK_DEPTH;
 
@@ -50,7 +56,7 @@ impl Timer {
   }
 }
 
-impl Deref for Timer {
+impl<'n> Deref for Timer<'n> {
   type Target = TimerHandle;
 
   fn deref(&self) -> &Self::Target {
@@ -58,19 +64,9 @@ impl Deref for Timer {
   }
 }
 
-impl Drop for Timer {
+impl<'n> Drop for Timer<'n> {
   fn drop(&mut self) {
-    unsafe {
-      let callback = pvTimerGetTimerID(self.as_ptr());
-      if !callback.is_null() {
-        let callback = Box::from_raw(callback as *mut Box<dyn FnOnce(&TimerHandle)>);
-        drop(callback);
-
-        vTimerSetTimerID(self.as_ptr(), ptr::null_mut());
-      }
-
-      xTimerDelete(self.as_ptr(), portMAX_DELAY);
-    }
+    unsafe { xTimerDelete(self.as_ptr(), portMAX_DELAY) };
   }
 }
 
@@ -78,21 +74,4 @@ impl Drop for Timer {
 #[must_use = "timer will be deleted immediately if unused"]
 pub struct StaticTimer {
   data: StaticTimer_t,
-}
-
-unsafe impl Send for StaticTimer {}
-unsafe impl Sync for StaticTimer {}
-
-impl Deref for StaticTimer {
-  type Target = TimerHandle;
-
-  fn deref(&self) -> &Self::Target {
-    unsafe { TimerHandle::from_ptr(ptr::addr_of!(self.data) as TimerHandle_t) }
-  }
-}
-
-impl Drop for StaticTimer {
-  fn drop(&mut self) {
-    unsafe { xTimerDelete(self.as_ptr(), portMAX_DELAY) };
-  }
 }
