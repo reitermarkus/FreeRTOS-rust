@@ -71,7 +71,6 @@ impl<'n> Drop for Timer<'n> {
 }
 
 /// A statically allocated software timer.
-#[must_use = "timer will be deleted immediately if unused"]
 pub struct StaticTimer {
   data: StaticTimer_t,
 }

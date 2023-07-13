@@ -17,10 +17,12 @@
 //! ```
 
 use core::{
-  ptr,
   ops::Deref,
   mem::MaybeUninit,
 };
+
+#[cfg(freertos_feature = "dynamic_allocation")]
+use alloc2::boxed::Box;
 
 use crate::{
   shim::{configMINIMAL_STACK_SIZE, xTaskGetIdleTaskHandle, StaticTask_t, StackType_t, vTaskDelete},
@@ -52,8 +54,12 @@ pub use system_state::{SystemState, TaskStatus};
 pub const MINIMAL_STACK_SIZE: usize = configMINIMAL_STACK_SIZE as usize;
 
 /// A task.
+#[must_use = "task will be deleted immediately if unused"]
 pub struct Task {
   handle: TaskHandle_t,
+  #[cfg(freertos_feature = "dynamic_allocation")]
+  #[allow(unused)]
+  function: Option<Box<Option<Box<dyn FnOnce(&mut CurrentTask)>>>>,
 }
 
 unsafe impl Send for Task {}
@@ -80,26 +86,14 @@ impl Deref for Task {
   }
 }
 
-/// A statically allocated task.
-pub struct StaticTask<const STACK_SIZE: usize = MINIMAL_STACK_SIZE> {
-  data: StaticTask_t,
-  stack: [MaybeUninit<StackType_t>; STACK_SIZE],
-}
-
-impl<const STACK_SIZE: usize> Deref for StaticTask<STACK_SIZE> {
-  type Target = TaskHandle;
-
-  #[inline]
-  fn deref(&self) -> &Self::Target {
-    unsafe { TaskHandle::from_ptr(ptr::addr_of!(self.data) as TaskHandle_t) }
-  }
-}
-
-impl<const STACK_SIZE: usize> Drop for StaticTask<STACK_SIZE> {
+impl Drop for Task {
   fn drop(&mut self) {
       unsafe { vTaskDelete(self.as_ptr()) }
   }
 }
 
-unsafe impl<const STACK_SIZE: usize> Send for StaticTask<STACK_SIZE> {}
-unsafe impl<const STACK_SIZE: usize> Sync for StaticTask<STACK_SIZE> {}
+/// A statically allocated task.
+pub struct StaticTask<const STACK_SIZE: usize = MINIMAL_STACK_SIZE> {
+  data: StaticTask_t,
+  stack: [MaybeUninit<StackType_t>; STACK_SIZE],
+}

@@ -63,7 +63,8 @@ impl TaskBuilder<'_> {
         // NOTE: New scope so that everything is dropped before the task is deleted.
         {
           let mut current_task = CurrentTask::new_unchecked();
-          let function = Box::from_raw(param as *mut Box<dyn FnOnce(&mut CurrentTask)>);
+          let function: &mut Option<Box<dyn FnOnce(&mut CurrentTask)>> = &mut *param.cast();
+          let function = function.take().unwrap_unchecked();
           function(&mut current_task);
         }
 
@@ -75,7 +76,7 @@ impl TaskBuilder<'_> {
     let name = TaskName::new(self.name);
 
     let function: Box<dyn FnOnce(&mut CurrentTask)> = Box::new(f);
-    let function_ptr: *mut Box<dyn FnOnce(&mut CurrentTask)> = Box::into_raw(Box::new(function));
+    let function_ptr: *mut Option<Box<dyn FnOnce(&mut CurrentTask)>> = Box::into_raw(Box::new(Some(function)));
     let mut ptr = ptr::null_mut();
 
     unsafe {
@@ -91,7 +92,10 @@ impl TaskBuilder<'_> {
       if res == pdPASS {
         debug_assert!(!ptr.is_null());
 
-        Task { handle: ptr }
+        Task {
+          handle: ptr,
+          function: Some(Box::from_raw(function_ptr)),
+        }
       } else {
         drop(Box::from_raw(function_ptr));
         assert_eq!(res, pdPASS);
@@ -126,7 +130,7 @@ impl TaskBuilder<'_> {
   /// Task::new().name("my_task").create_static(task, my_task)
   /// ```
   #[cfg(freertos_feature = "static_allocation")]
-  pub fn create_static<const STACK_SIZE: usize>(self, task: &'static mut MaybeUninit<StaticTask<STACK_SIZE>>, f: fn(&mut CurrentTask)) -> &'static StaticTask<STACK_SIZE> {
+  pub fn create_static<const STACK_SIZE: usize>(self, task: &'static mut MaybeUninit<StaticTask<STACK_SIZE>>, f: fn(&mut CurrentTask)) -> Task {
     assert!(STACK_SIZE <= self.stack_size);
 
     extern "C" fn task_function(param: *mut c_void) {
@@ -166,7 +170,11 @@ impl TaskBuilder<'_> {
       debug_assert!(!ptr.is_null());
       debug_assert_eq!(ptr, task_buffer.cast());
 
-      task.assume_init_ref()
+      Task {
+        handle: ptr,
+        #[cfg(freertos_feature = "dynamic_allocation")]
+        function: None,
+      }
     }
   }
 }

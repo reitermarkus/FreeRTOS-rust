@@ -1,7 +1,6 @@
 //! FreeRTOS allocator and allocation types.
 
 use core::alloc::{GlobalAlloc, Layout};
-use core::marker::PhantomPinned;
 
 use crate::shim::{pvPortMalloc, vPortFree};
 
@@ -32,14 +31,4 @@ unsafe impl GlobalAlloc for Allocator {
 #[export_name = "vApplicationMallocFailedHook"]
 extern "C" fn malloc_failed_hook() {
   panic!("`malloc` failed");
-}
-
-/// Marker type for dynamically allocated types.
-#[non_exhaustive]
-pub struct Dynamic {}
-
-/// Marker type for statically allocated types.
-#[non_exhaustive]
-pub struct Static {
-  _pinned: PhantomPinned,
 }
