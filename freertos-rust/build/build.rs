@@ -99,7 +99,7 @@ pub fn builders(
     .parse_callbacks(Box::new(bindgen::CargoCallbacks));
 
   cc.define("RUST", None);
-  bindgen = bindgen.clang_arg(format!("-DRUST"));
+  bindgen = bindgen.clang_arg("-DRUST");
 
   for c_file in c_files {
     cc.file(c_file);
