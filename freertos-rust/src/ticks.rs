@@ -29,7 +29,7 @@ impl Ticks {
 
   /// Create `Ticks` from milliseconds.
   pub const fn from_millis(ms: u32) -> Self {
-    let ticks = TickType_t::try_from(ms).unwrap_or(portMAX_DELAY) / portTICK_PERIOD_MS;
+    let ticks = ms as TickType_t / portTICK_PERIOD_MS;
     Self { ticks }
   }
 }
