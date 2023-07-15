@@ -18,3 +18,4 @@ bindgen = { git = "https://github.com/reitermarkus/rust-bindgen", branch = "cmac
 # cexpr = { git = "https://github.com/reitermarkus/rust-cexpr", branch = "cast-expr" }
 # cmacro = { path = "../cmacro-rs" }
 # bindgen = { path = "../rust-bindgen" }
+cmacro = { git = "https://github.com/reitermarkus/cmacro-rs" }
