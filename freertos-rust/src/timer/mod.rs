@@ -14,6 +14,9 @@ pub use builder::TimerBuilder;
 mod handle;
 pub use handle::TimerHandle;
 
+#[cfg(freertos_feature = "dynamic_allocation")]
+type BoxTimerFn = Box<dyn Fn(&TimerHandle)>;
+
 /// A software timer.
 ///
 /// Note that all operations on a timer are processed by a FreeRTOS internal task
@@ -24,7 +27,7 @@ pub struct Timer<'n> {
   handle: TimerHandle_t,
   #[cfg(freertos_feature = "dynamic_allocation")]
   #[allow(unused)]
-  callback: Option<Box<Box<dyn Fn(&TimerHandle)>>>,
+  callback: Option<Box<BoxTimerFn>>,
   #[allow(unused)]
   name: Option<&'n CStr>,
 }

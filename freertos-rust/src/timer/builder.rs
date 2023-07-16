@@ -16,6 +16,8 @@ use crate::shim::xTimerCreate;
 use crate::shim::xTimerCreateStatic;
 
 use super::{Timer, StaticTimer, TimerHandle};
+#[cfg(freertos_feature = "dynamic_allocation")]
+use super::BoxTimerFn;
 
 /// Helper struct for creating a new timer returned by [`Timer::new`].
 pub struct TimerBuilder<'n> {
@@ -59,7 +61,7 @@ impl<'n> TimerBuilder<'n> {
         let handle = TimerHandle::from_ptr(ptr);
 
         let callback_ptr = pvTimerGetTimerID(ptr);
-        let callback: &mut Box<dyn Fn(&TimerHandle)> = &mut *callback_ptr.cast();
+        let callback: &mut BoxTimerFn = &mut *callback_ptr.cast();
         callback(handle);
       }
     }
@@ -71,7 +73,7 @@ impl<'n> TimerBuilder<'n> {
     };
 
     let callback = Box::new(callback);
-    let callback_ptr: *mut Box<dyn Fn(&TimerHandle)> = Box::into_raw(Box::new(callback));
+    let callback_ptr: *mut BoxTimerFn = Box::into_raw(Box::new(callback));
 
     unsafe {
       let ptr = xTimerCreate(
