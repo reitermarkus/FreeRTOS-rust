@@ -99,7 +99,7 @@ impl Scheduler {
   /// Get the complete system state.
   pub fn system_state() -> SystemState {
     let tasks_len = Self::task_count();
-    let mut tasks = Vec::<TaskStatus_t>::with_capacity(tasks_len as usize);
+    let mut tasks = Vec::<TaskStatus_t>::with_capacity(tasks_len);
     let mut total_run_time = 0;
 
     unsafe {

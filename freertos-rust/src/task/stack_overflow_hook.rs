@@ -49,6 +49,6 @@ extern "C" fn stack_overflow_hook(task_handle: TaskHandle_t, task_name: *const c
       .unwrap_or_default();
 
     let f: StackOverflowHookFunction = mem::transmute(STACK_OVERFLOW_HOOK_FUNCTION.load(Ordering::Acquire));
-    f(&task, task_name);
+    f(task, task_name);
   }
 }

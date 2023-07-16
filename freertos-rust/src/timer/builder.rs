@@ -26,7 +26,7 @@ pub struct TimerBuilder<'n> {
 
 impl<'n> TimerBuilder<'n> {
   /// Set the name of the timer.
-  pub const fn name<'a>(self, name: &'a CStr) -> TimerBuilder<'a> {
+  pub const fn name(self, name: &CStr) -> TimerBuilder<'_> {
     TimerBuilder {
       name: Some(name),
       period: self.period,
@@ -49,7 +49,6 @@ impl<'n> TimerBuilder<'n> {
   /// Create the dynamic [`Timer`].
   ///
   /// Note that the newly created timer must be started.
-  #[must_use]
   #[cfg(freertos_feature = "dynamic_allocation")]
   pub fn create<F>(self, callback: F) -> Timer<'n>
   where
@@ -111,7 +110,6 @@ impl<'n> TimerBuilder<'n> {
   ///
   /// timer.start(Duration::MAX);
   /// ```
-  #[must_use]
   #[cfg(freertos_feature = "static_allocation")]
   pub fn create_static(self, timer: &'static mut MaybeUninit<StaticTimer>, callback: fn(timer: &TimerHandle)) -> Timer<'n> {
     extern "C" fn timer_callback(ptr: TimerHandle_t) -> () {

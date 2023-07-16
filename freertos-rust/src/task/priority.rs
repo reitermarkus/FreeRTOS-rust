@@ -24,11 +24,15 @@ impl TaskPriority {
   }
 
   /// Create a new `TaskPriority` without checking whether it is valid.
+  ///
+  /// # Safety
+  ///
+  /// `priority` must be less than or equal to `configMAX_PRIORITIES`.
   pub const unsafe fn new_unchecked(priority: u8) -> Self {
     Self { priority }
   }
 
-  pub(crate) fn to_freertos(&self) -> UBaseType_t {
+  pub(crate) fn to_freertos(self) -> UBaseType_t {
     self.priority.into()
   }
 }
