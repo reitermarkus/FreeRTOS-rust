@@ -44,6 +44,7 @@ unsafe impl<T: Send, const SIZE: usize> Sync for Queue<T, SIZE> {}
 #[cfg(freertos_feature = "dynamic_allocation")]
 impl<T, const SIZE: usize> Queue<T, SIZE> {
     /// Create a new dynamic queue.
+    #[allow(clippy::new-without-default)]
     pub fn new() -> Self {
       let ptr = unsafe {
         xQueueCreate(

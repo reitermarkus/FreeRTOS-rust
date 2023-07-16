@@ -25,6 +25,7 @@ impl InterruptContext {
   /// Instantiate a new interrupt context.
   ///
   /// This must be called from within an interrupt service routine.
+  #[allow(clippy::new-without-default)]
   pub fn new() -> Self {
     Self { x_higher_priority_task_woken: UnsafeCell::new(0) }
   }

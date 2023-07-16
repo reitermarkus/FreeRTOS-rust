@@ -27,7 +27,7 @@ pub enum TaskNotification {
 }
 
 impl TaskNotification {
-  pub(crate) fn to_freertos(&self) -> (u32, eNotifyAction) {
+  pub(crate) fn to_freertos(self) -> (u32, eNotifyAction) {
     match *self {
       TaskNotification::NoAction => (0, eNotifyAction_eNoAction),
       TaskNotification::SetBits(v) => (v, eNotifyAction_eSetBits),

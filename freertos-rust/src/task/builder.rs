@@ -1,6 +1,7 @@
 use core::{mem::{MaybeUninit, self}, ptr, ffi::c_void};
 
-use alloc2::{boxed::Box};
+#[cfg(freertos_feature = "dynamic_allocation")]
+use alloc2::boxed::Box;
 
 use crate::{
   CurrentTask,
@@ -12,6 +13,9 @@ use crate::shim::xTaskCreate;
 use crate::{StaticTask, shim::xTaskCreateStatic};
 
 use super::{Task, TaskPriority, TaskName, MINIMAL_STACK_SIZE};
+
+#[cfg(freertos_feature = "dynamic_allocation")]
+type BoxTaskFn = Box<dyn FnOnce(&mut CurrentTask)>;
 
 /// Helper for creating a new task returned by [`Task::new`].
 pub struct TaskBuilder<'n> {
@@ -32,7 +36,7 @@ impl TaskBuilder<'_> {
 
 impl TaskBuilder<'_> {
   /// Set the task name.
-  pub const fn name<'n>(self, name: &'n str) -> TaskBuilder<'n> {
+  pub const fn name(self, name: &str) -> TaskBuilder<'_> {
     TaskBuilder {
       name,
       stack_size: self.stack_size,
@@ -54,7 +58,7 @@ impl TaskBuilder<'_> {
 
   /// Create the [`Task`].
   #[cfg(freertos_feature = "dynamic_allocation")]
-  pub fn create<'f, F>(&self, f: F) -> Task
+  pub fn create<F>(&self, f: F) -> Task
   where
     F: FnOnce(&mut CurrentTask) + Send + 'static,
   {
@@ -63,7 +67,7 @@ impl TaskBuilder<'_> {
         // NOTE: New scope so that everything is dropped before the task is deleted.
         {
           let mut current_task = CurrentTask::new_unchecked();
-          let function: &mut Option<Box<dyn FnOnce(&mut CurrentTask)>> = &mut *param.cast();
+          let function: &mut Option<BoxTaskFn> = &mut *param.cast();
           let function = function.take().unwrap_unchecked();
           function(&mut current_task);
         }
@@ -75,8 +79,8 @@ impl TaskBuilder<'_> {
 
     let name = TaskName::new(self.name);
 
-    let function: Box<dyn FnOnce(&mut CurrentTask)> = Box::new(f);
-    let function_ptr: *mut Option<Box<dyn FnOnce(&mut CurrentTask)>> = Box::into_raw(Box::new(Some(function)));
+    let function: BoxTaskFn = Box::new(f);
+    let function_ptr: *mut Option<BoxTaskFn> = Box::into_raw(Box::new(Some(function)));
     let mut ptr = ptr::null_mut();
 
     unsafe {
