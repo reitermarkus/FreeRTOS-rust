@@ -78,7 +78,7 @@ fn main() -> ! {
         }
     }).unwrap();
 
-    FreeRtosUtils::start_scheduler();
+    Scheduler::start();
 }
 
 fn test_function(arg: i32) -> i32 {

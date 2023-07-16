@@ -33,6 +33,8 @@ pub struct Counting<const INITIAL: usize, const MAX: usize> {}
 /// # Example
 ///
 /// ```
+/// use core::time::Duration;
+///
 /// use freertos_rust::sync::{Semaphore, Counting};
 ///
 /// let binary_semaphore = Semaphore::new_binary();
@@ -40,7 +42,7 @@ pub struct Counting<const INITIAL: usize, const MAX: usize> {}
 ///
 /// let counting_semaphore = Semaphore::<Counting<3, 8>>::new_counting();
 /// for _ in 0..3 {
-///   counting_semaphore.take().unwrap();
+///   counting_semaphore.take(Duration::MAX).unwrap();
 /// }
 /// for _ in 0..8 {
 ///   counting_semaphore.give().unwrap();
@@ -111,35 +113,34 @@ unsafe impl<T: Sync> Sync for Semaphore<T> {}
 /// # Example
 ///
 /// ```
-/// use core::mem::MaybeUninit;
+/// use core::{mem::MaybeUninit, time::Duration};
 ///
-/// use freertos_rust::sync::{StaticSemaphore, Counting};
+/// use freertos_rust::sync::{Semaphore, StaticSemaphore, Counting};
 ///
 ///
-/// let binary_semaphore = StaticSemaphore::new_binary(unsafe {
+/// let binary_semaphore = Semaphore::new_binary_static(unsafe {
 ///   static mut BINARY_SEMAPHORE: MaybeUninit<StaticSemaphore> = MaybeUninit::uninit();
 ///   &mut BINARY_SEMAPHORE
 /// });
 /// binary_semaphore.give().unwrap();
 ///
-/// let counting_semaphore = Semaphore::<Counting<3, 8>>::new_counting(unsafe {
+/// let counting_semaphore = Semaphore::<Counting<3, 8>>::new_counting_static(unsafe {
 ///   static mut COUNTING_SEMAPHORE: MaybeUninit<StaticSemaphore> = MaybeUninit::uninit();
 ///   &mut COUNTING_SEMAPHORE
 /// });
 /// for _ in 0..3 {
-///   counting_semaphore.take().unwrap();
+///   counting_semaphore.take(Duration::MAX).unwrap();
 /// }
 /// for _ in 0..8 {
 ///   counting_semaphore.give().unwrap();
 /// }
 /// ```
-pub struct StaticSemaphore<T> {
+pub struct StaticSemaphore {
   data: StaticSemaphore_t,
-  mode: PhantomData<T>,
 }
 
-unsafe impl<T: Send> Send for StaticSemaphore<T> {}
-unsafe impl<T: Sync> Sync for StaticSemaphore<T> {}
+unsafe impl Send for StaticSemaphore {}
+unsafe impl Sync for StaticSemaphore {}
 
 macro_rules! impl_static_semaphore {
   (
@@ -149,9 +150,9 @@ macro_rules! impl_static_semaphore {
     $variant_name:ident,
   ) => {
     #[cfg(freertos_feature = "static_allocation")]
-    impl<$(const $initial: $initial_ty, const $max: $max_ty)*> StaticSemaphore<$semaphore$(<$max, $initial>)*> {
+    impl<$(const $initial: $initial_ty, const $max: $max_ty)*> Semaphore<$semaphore$(<$initial, $max>)*> {
       #[doc = concat!("Create a new static ", stringify!($variant_name), " semaphore.")]
-      pub fn $new_fn(semaphore: &'static mut MaybeUninit<StaticSemaphore<$semaphore$(<$initial, $max>)*>>) -> &'static StaticSemaphore<$semaphore$(<$initial, $max>)*> {
+      pub fn $new_fn(semaphore: &'static mut MaybeUninit<StaticSemaphore>) -> Semaphore<$semaphore$(<$initial, $max>)*> {
         $(assert!($initial <= $max);)*
 
         let semaphore_ptr = semaphore.as_mut_ptr();
@@ -160,7 +161,8 @@ macro_rules! impl_static_semaphore {
           let ptr = $create($($max as _, $initial as _,)* ptr::addr_of_mut!((*semaphore_ptr).data));
           debug_assert!(!ptr.is_null());
           debug_assert_eq!(ptr, ptr::addr_of_mut!((*semaphore_ptr).data).cast());
-          semaphore.assume_init_ref()
+
+          Self { handle: ptr, mode: PhantomData }
         }
       }
     }
@@ -170,27 +172,13 @@ macro_rules! impl_static_semaphore {
 impl_static_semaphore!(
   Binary,
   xSemaphoreCreateBinaryStatic,
-  new_binary,
+  new_binary_static,
   binary,
 );
 
 impl_static_semaphore!(
   Counting<const INITIAL: usize = 0, const MAX: usize = 4>,
   xSemaphoreCreateCountingStatic,
-  new_counting,
+  new_counting_static,
   counting,
 );
-
-impl<T> Deref for StaticSemaphore<T> {
-  type Target = SemaphoreHandle;
-
-  fn deref(&self) -> &Self::Target {
-    unsafe { SemaphoreHandle::from_ptr(ptr::addr_of!(self.data) as SemaphoreHandle_t) }
-  }
-}
-
-impl<T> Drop for StaticSemaphore<T> {
-  fn drop(&mut self) {
-    unsafe { vSemaphoreDelete(self.as_ptr()) }
-  }
-}

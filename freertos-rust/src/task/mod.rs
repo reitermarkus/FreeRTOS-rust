@@ -2,16 +2,16 @@
 //!
 //! # Examples
 //!
-//! ```
+//! ```no_run
 //! use core::time::Duration;
 //! use freertos_rust::task::{Task, Scheduler};
 //!
-//! Task::new().name("hello").stack_size(128).create(|task| {
+//! let _task = Task::new().name("hello").stack_size(128).create(|task| {
 //!   loop {
 //!     println!("Hello, world!");
 //!     task.delay(Duration::MAX);
 //!   }
-//! }).start();
+//! });
 //!
 //! Scheduler::start();
 //! ```

@@ -8,9 +8,7 @@ fn main() {
     let x = Box::new(15);
     println!("Boxed int '{}' (allocator test)", x);
 
-    unsafe {
-        FREERTOS_HOOKS.set_on_assert(|| { println!("Assert hook called") });
-    }
+    set_assertion_handler(|_, _, _| { println!("Assert hook called") });
 
     //println!("Calling assert ...");
     //FreeRtosUtils::invoke_assert();
@@ -28,10 +26,7 @@ fn main() {
     //let free = freertos_rs_xPortGetFreeHeapSize();
     // println!("Free Memory: {}!", free);
     println!("Starting scheduler");
-    FreeRtosUtils::start_scheduler();
-    loop {
-        println!("Loop forever!");
-    }
+    Scheduler::start();
 }
 
 #[test]

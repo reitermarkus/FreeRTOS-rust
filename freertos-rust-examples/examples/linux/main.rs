@@ -28,10 +28,7 @@ fn main() {
     //let free = freertos_rs_xPortGetFreeHeapSize();
     // println!("Free Memory: {}!", free);
     println!("Starting scheduler");
-    FreeRtosUtils::start_scheduler();
-    loop {
-        println!("Loop forever!");
-    }
+    Scheduler::start();
 }
 
 #[test]

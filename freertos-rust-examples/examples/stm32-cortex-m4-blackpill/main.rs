@@ -71,7 +71,7 @@ fn main() -> ! {
             device.set_led(false);
         }
     }).unwrap();
-    FreeRtosUtils::start_scheduler();
+    Scheduler::start();
 }
 
 #[exception]

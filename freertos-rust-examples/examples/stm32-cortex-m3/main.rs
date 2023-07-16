@@ -86,7 +86,7 @@ fn main() -> ! {
 
     // TODO: Starting the scheduler fails, we need debugging to find the issue
     // Seems like we don't even get an assert
-    FreeRtosUtils::start_scheduler();
+    Scheduler::start();
 }
 
 #[exception]

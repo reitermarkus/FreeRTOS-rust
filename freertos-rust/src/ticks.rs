@@ -32,6 +32,11 @@ impl Ticks {
     let ticks = ms as TickType_t / portTICK_PERIOD_MS;
     Self { ticks }
   }
+
+  /// Create `Ticks` from seconds.
+  pub const fn from_secs(s: u32) -> Self {
+    Self::from_millis(s * 1000)
+  }
 }
 
 impl From<Ticks> for TickType_t {

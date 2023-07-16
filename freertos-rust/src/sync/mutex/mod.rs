@@ -66,20 +66,17 @@ macro_rules! impl_mutex {
     #[cfg(freertos_feature = "static_allocation")]
     impl<T> $mutex<T> {
       #[doc = concat!("Create a new static `", stringify!($mutex), "` with the given inner value.")]
-      /// Create a new static queue.
-      ///
-      /// # Safety
-      ///
-      /// The returned mutex must have a `'static` lifetime.
       ///
       /// # Examples
       ///
       /// ```
-      #[doc = concat!("use freertos_rust::{alloc::Static, sync::", stringify!($mutex), "};")]
+      /// use core::mem::MaybeUninit;
       ///
-      /// // SAFETY: Assignment to a `static` ensures a `'static` lifetime.
-      #[doc = concat!("static MUTEX: ", stringify!($mutex), "<u32, Static> = unsafe {")]
-      #[doc = concat!("  ", stringify!($mutex), "::new_static(123)")]
+      #[doc = concat!("use freertos_rust::sync::{", stringify!($mutex), ", StaticMutex};")]
+      ///
+      #[doc = concat!("let mutex: ", stringify!($mutex), "<u32> = unsafe {")]
+      ///   static mut MUTEX: MaybeUninit<StaticMutex> = MaybeUninit::uninit();
+      #[doc = concat!("  ", stringify!($mutex), "::new_static(&mut MUTEX, 123)")]
       /// };
       /// ```
       pub fn new_static(mutex: &'static mut MaybeUninit<StaticMutex>, data: T) -> Self {

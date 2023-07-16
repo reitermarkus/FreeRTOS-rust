@@ -117,17 +117,14 @@ impl TaskBuilder<'_> {
   /// ```
   /// use core::mem::MaybeUninit;
   ///
-  /// use freertos_rust::{alloc::Static, task::{Task, CurrentTask}};
+  /// use freertos_rust::{Task, StaticTask, CurrentTask};
   ///
   /// fn my_task(task: &mut CurrentTask) {
   ///   // ...
   /// }
   ///
-  /// static mut TASK: MaybeUninit<StaticTask<STACK_SIZE>> = MaybeUninit::uninit();
-  /// // SAFETY: Only used once to create `my_task` below.
-  /// let task = unsafe { &mut TASK };
-  ///
-  /// Task::new().name("my_task").create_static(task, my_task)
+  /// static mut TASK: MaybeUninit<StaticTask<128>> = MaybeUninit::uninit();  ///
+  /// let _task = Task::new().name("my_task").create_static(unsafe { &mut TASK }, my_task);
   /// ```
   #[cfg(freertos_feature = "static_allocation")]
   pub fn create_static<const STACK_SIZE: usize>(self, task: &'static mut MaybeUninit<StaticTask<STACK_SIZE>>, f: fn(&mut CurrentTask)) -> Task {

@@ -5,12 +5,7 @@ use core::{
   ptr,
 };
 
-use alloc2::sync::Arc;
-
 use crate::{
-  FreeRtosError,
-  InterruptContext,
-  Ticks,
   ffi::{QueueHandle_t, UBaseType_t},
   shim::{vQueueDelete, StaticQueue_t},
 };
@@ -27,13 +22,17 @@ pub use handle::QueueHandle;
 /// # Example
 ///
 /// ```
+/// extern crate alloc;
+/// use alloc::sync::Arc;
+/// use core::{time::Duration};
+///
 /// use freertos_rust::sync::Queue;
 ///
 /// let queue = Queue::<u32, 8>::new();
-/// queue.send(42);
+/// queue.send(42, Duration::MAX);
 ///
-/// let (_sender, receiver) = queue.split();
-/// assert_eq!(receiver.receive(), Ok(42));
+/// assert_eq!(queue.receive(Duration::MAX), Ok(42));
+/// ```
 pub struct Queue<T, const SIZE: usize> {
   handle: QueueHandle_t,
   item_type: PhantomData<T>,
@@ -61,13 +60,6 @@ impl<T, const SIZE: usize> Queue<T, SIZE> {
     }
 }
 
-impl<T, const SIZE: usize> Queue<T, SIZE> {
-    /// Create a sender/receiver pair from this queue.
-    pub fn split(self: Arc<Self>) -> (Sender<Arc<Self>>, Receiver<Arc<Self>>) {
-      (Sender { queue: Arc::clone(&self) }, Receiver { queue: self })
-    }
-}
-
 impl<T, const SIZE: usize> Deref for Queue<T, SIZE> {
   type Target = QueueHandle<T>;
 
@@ -82,53 +74,12 @@ impl<T, const SIZE: usize> Drop for Queue<T, SIZE> {
   }
 }
 
-/// A sender for a queue.
-pub struct Sender<Q: Deref> {
-  queue: Q,
-}
-
-impl<Q, T> Sender<Q>
-where
-  T: Sized + Send,
-  Q: Deref<Target = QueueHandle<T>>,
-{
-
-  /// Send an item to the end of the queue. Wait for the queue to have empty space for it.
-  #[inline]
-  pub fn send(&self, item: T, timeout: impl Into<Ticks>) -> Result<(), FreeRtosError> {
-    self.queue.send(item, timeout)
-  }
-
-  /// Send an item to the end of the queue, from an interrupt.
-  #[inline]
-  pub fn send_from_isr(&self, ic: &InterruptContext, item: T) -> Result<(), FreeRtosError> {
-    self.queue.send_from_isr(ic, item)
-  }
-}
-
-/// A receiver for a queue.
-pub struct Receiver<Q: Deref> {
-  queue: Q,
-}
-
-impl<Q, T> Receiver<Q>
-where
-  T: Sized + Send,
-  Q: Deref<Target = QueueHandle<T>>,
-{
-  /// Wait for an item to be available on the queue.
-  #[inline]
-  pub fn receive(&self, timeout: impl Into<Ticks>) -> Result<T, FreeRtosError> {
-    self.queue.receive(timeout)
-  }
-}
-
 /// A statically allocated fixed-size queue. Items are copied and owned by the queue.
 ///
 /// # Examples
 ///
 /// ```
-/// use core::mem::MaybeUninit;
+/// use core::{mem::MaybeUninit, time::Duration};
 ///
 /// use freertos_rust::sync::StaticQueue;
 ///
@@ -136,10 +87,9 @@ where
 ///   static mut QUEUE: MaybeUninit<StaticQueue<u32, 8>> = MaybeUninit::uninit();
 ///   &mut QUEUE
 /// });
-/// queue.send(42);
+/// queue.send(42, Duration::MAX);
 ///
-/// let (_sender, receiver) = queue.split();
-/// assert_eq!(receiver.receive(), Ok(42));
+/// assert_eq!(queue.receive(Duration::MAX), Ok(42));
 /// ```
 pub struct StaticQueue<T, const SIZE: usize> {
   data: StaticQueue_t,
@@ -166,13 +116,6 @@ impl<T, const SIZE: usize> StaticQueue<T, SIZE> {
       debug_assert_eq!(ptr, ptr::addr_of!((*queue_ptr).data) as QueueHandle_t);
       queue.assume_init_ref()
     }
-  }
-}
-
-impl<T, const SIZE: usize> StaticQueue<T, SIZE> {
-  /// Create a sender/receiver pair from this queue.
-  pub fn split(&'static self) -> (Sender<&'static Self>, Receiver<&'static Self>) {
-    (Sender { queue: self }, Receiver { queue: self })
   }
 }
 

@@ -35,8 +35,8 @@ impl<'n> TimerBuilder<'n> {
   }
 
   /// Set the period of the timer.
-  pub const fn period(mut self, period: Ticks) -> Self {
-    self.period = period;
+  pub fn period<T: Into<Ticks>>(mut self, period: T) -> Self {
+    self.period = period.into();
     self
   }
 
@@ -99,19 +99,17 @@ impl<'n> TimerBuilder<'n> {
   /// # Examples
   ///
   /// ```
-  /// use core::time::Duration;
-  /// use freertos_rust::{alloc::Static, timer::{Timer, TimerHandle}};
+  /// use core::{mem::MaybeUninit, time::Duration};
+  /// use freertos_rust::{StaticTimer, Timer, TimerHandle};
   ///
   /// fn my_timer_callback(timer: &TimerHandle) {
   ///   // ...
   /// }
   ///
-  /// // SAFETY: Assignment to a `static` ensures a `'static` lifetime.
-  /// static TIMER: Timer<Static> = unsafe {
-  ///   Timer::new().period(200).create_static(my_timer_callback)
-  /// };
+  /// static mut TIMER: MaybeUninit<StaticTimer> = MaybeUninit::uninit();
+  /// let timer = Timer::new().period(Duration::from_millis(200)).create_static(unsafe { &mut TIMER }, my_timer_callback);
   ///
-  /// TIMER.start(Duration::MAX);
+  /// timer.start(Duration::MAX);
   /// ```
   #[must_use]
   #[cfg(freertos_feature = "static_allocation")]
