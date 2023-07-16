@@ -27,8 +27,8 @@
 //! let mutex = Mutex::<u32>::new(16);
 //!
 //! {
-//! 	let mut v = mutex.lock().unwrap();
-//! 	*v += 1;
+//!   let mut v = mutex.lock().unwrap();
+//!   *v += 1;
 //! }
 //!
 //! assert_eq!(*mutex.lock().unwrap(), 17);

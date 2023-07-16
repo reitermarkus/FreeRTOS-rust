@@ -54,7 +54,7 @@ impl<'n> TimerBuilder<'n> {
   where
     F: Fn(&TimerHandle) + Send + 'static,
   {
-    extern "C" fn timer_callback(ptr: TimerHandle_t) -> () {
+    extern "C" fn timer_callback(ptr: TimerHandle_t) {
       unsafe {
         let handle = TimerHandle::from_ptr(ptr);
 
@@ -112,7 +112,7 @@ impl<'n> TimerBuilder<'n> {
   /// ```
   #[cfg(freertos_feature = "static_allocation")]
   pub fn create_static(self, timer: &'static mut MaybeUninit<StaticTimer>, callback: fn(timer: &TimerHandle)) -> Timer<'n> {
-    extern "C" fn timer_callback(ptr: TimerHandle_t) -> () {
+    extern "C" fn timer_callback(ptr: TimerHandle_t) {
       unsafe {
         let handle = TimerHandle::from_ptr(ptr);
 

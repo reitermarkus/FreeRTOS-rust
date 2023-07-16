@@ -63,6 +63,7 @@ impl<T> QueueHandle<T> {
 
   /// Get the number of messages in the queue.
   #[inline]
+  #[allow(clippy::len_without_is_empty)]
   pub fn len(&self) -> usize {
     unsafe { uxQueueMessagesWaiting(self.as_ptr()) as usize }
   }

@@ -29,7 +29,7 @@ impl TaskStatus {
   /// Get the task.
   #[inline]
   pub fn task(&self) -> &TaskHandle {
-    &self.handle
+    self.handle
   }
 
   /// Get the task name.
