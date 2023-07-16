@@ -135,7 +135,7 @@ fn main() {
       eprintln!("Failed generating bindings: {}", err);
       exit(1);
     })
-    .write_to_file(&bindings).unwrap_or_else(|err| {
+    .write_to_file(bindings).unwrap_or_else(|err| {
       eprintln!("Failed writing bindings: {}", err);
       exit(1);
     });
