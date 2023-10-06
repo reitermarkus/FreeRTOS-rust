@@ -96,7 +96,7 @@ pub fn builders(
     .ctypes_prefix("::core::ffi")
     .generate_cstr(true)
     .generate_fn_macros(true)
-    .parse_callbacks(Box::new(bindgen::CargoCallbacks));
+    .parse_callbacks(Box::new(bindgen::CargoCallbacks::new()));
 
   cc.define("RUST", None);
   bindgen = bindgen.clang_arg("-DRUST");
