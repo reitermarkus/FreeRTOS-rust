@@ -40,6 +40,8 @@ critical-section = { version = "1.0", optional = true }
 embedded-hal = "0.2"
 
 [build-dependencies]
+stderrlog = "0.5"
+log = "0.4"
 bindgen = { version = "0.68.1", features = ["experimental"] }
 walkdir = "2"
 cc = "1"
