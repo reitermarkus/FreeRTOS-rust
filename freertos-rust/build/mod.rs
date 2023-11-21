@@ -85,7 +85,6 @@ impl ParseCallbacks for Callbacks {
   }
 }
 
-// See: https://doc.rust-lang.org/cargo/reference/build-scripts.html
 fn main() {
   stderrlog::new().verbosity(2).init().unwrap();
 
@@ -127,10 +126,6 @@ fn main() {
     .parse_callbacks(Box::new(Callbacks))
     .blocklist_function("__.*")
     .blocklist_function("U?INT(MAX|\\d+)_C")
-    .blocklist_function("task(ENTER|EXIT)_CRITICAL_FROM_ISR")
-    .blocklist_function("task(ENABLE|DISABLE)_INTERRUPTS")
-    .blocklist_function("port(SET|CLEAR)_INTERRUPT_MASK_FROM_ISR")
-    .blocklist_function("port(ENABLE|DISABLE)_INTERRUPTS")
     // Trace macros only work if defined in C.
     .blocklist_function("trace[A-Z_]+")
     .generate().unwrap_or_else(|err| {
